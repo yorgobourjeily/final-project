@@ -1,0 +1,11 @@
+:host { display: flex; flex-direction: column; min-height: 100vh; }
+main { flex: 1; padding-block: 2rem 4rem; }
+.topbar { background: var(--navy); color: #fff; }
+.topbar-inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 64px; padding-block: 0.5rem; }
+.brand { display: flex; align-items: center; gap: 0.6rem; color: #fff; font-weight: 600; font-size: 1.15rem; text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: #fff; color: var(--navy); font-size: 0.8rem; font-weight: 700; }
+.session { display: flex; align-items: center; gap: 0.75rem; }
+.who { font-size: 0.92rem; }
+.role { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; background: rgb(255 255 255 / 0.16); border-radius: 999px; padding: 0.15rem 0.5rem; margin-left: 0.25rem; }
+.bell { background: var(--bad); color: #fff; font-size: 0.75rem; font-weight: 600; border-radius: 999px; min-width: 1.4rem; text-align: center; padding: 0.1rem 0.4rem; }
+.footer { background: var(--navy); color: rgb(255 255 255 / 0.7); font-size: 0.85rem; padding-block: 1.1rem; }

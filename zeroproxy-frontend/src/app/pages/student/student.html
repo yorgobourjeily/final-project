@@ -1,0 +1,54 @@
+@if (user(); as me) {
+  <header class="page-header">
+    <p class="eyebrow">Student portal</p>
+    <h1>Hello, {{ me.name }}</h1>
+    <p>{{ today | date: 'EEEE d MMMM y' }}</p>
+  </header>
+
+  <div class="two-col">
+    <section class="card">
+      <h2>Today's attendance</h2>
+      @if (todayRecord(); as r) {
+        <div class="today">
+          <app-status-badge [status]="r.status" />
+          <p>
+            @if (r.status === 'absent' && r.method === 'auto') {
+              You did not scan in by {{ lateAfter() }}, so you were marked absent and your parent
+              was notified. If you have just arrived, scan your face to be marked late instead.
+            } @else if (r.status === 'absent') {
+              Your teacher marked you absent today. Your parent has been notified.
+            } @else {
+              Recorded at <strong>{{ r.time }}</strong>
+              {{ r.method === 'face' ? 'by face recognition' : 'by your teacher' }}.
+              @if (r.status === 'late') {
+                You arrived after {{ lateAfter() }}, so your parent has been notified.
+              }
+            }
+          </p>
+          @if (r.status === 'absent' && r.method === 'auto') {
+            <app-camera-scan (recognised)="markAttendance(me.id)" />
+          }
+        </div>
+      } @else if (!me.enrolled) {
+        <p class="muted">You are not on a class attendance sheet yet. Ask your teacher to add you.</p>
+      } @else {
+        <p class="muted">
+          Class starts at {{ settings().startTime }}. Scans after {{ lateAfter() }} are marked late.
+        </p>
+        <app-camera-scan (recognised)="markAttendance(me.id)" />
+      }
+    </section>
+
+    <section class="card">
+      <app-notification-list [items]="notifications()" (markAllRead)="data.markAllRead(me.id)" />
+    </section>
+  </div>
+
+  <section class="section">
+    <h2>My attendance</h2>
+    <app-attendance-summary [records]="history()" [maxAbsences]="settings().maxAbsences" />
+    <div class="card flush">
+      <app-attendance-table [records]="history()" />
+    </div>
+  </section>
+}

@@ -1,0 +1,196 @@
+<header class="page-header">
+  <p class="eyebrow">Admin portal</p>
+  <h1>System administration</h1>
+</header>
+
+<nav class="tabs" aria-label="Admin sections">
+  <button type="button" [class.active]="tab() === 'users'" (click)="tab.set('users')">User accounts</button>
+  <button type="button" [class.active]="tab() === 'create'" (click)="tab.set('create')">Create account</button>
+  <button type="button" [class.active]="tab() === 'system'" (click)="tab.set('system')">
+    System
+    @if (errorCount() > 0) {
+      <span class="tab-count">{{ errorCount() }}</span>
+    }
+  </button>
+</nav>
+
+@switch (tab()) {
+  @case ('users') {
+    <section class="card flush">
+      <div class="toolbar">
+        <label class="inline">
+          Show
+          <select (change)="onFilter($event)">
+            <option value="all">All roles</option>
+            @for (r of roles; track r) {
+              <option [value]="r" [selected]="filter() === r">{{ roleLabels[r] }}s</option>
+            }
+          </select>
+        </label>
+        <span class="muted">{{ visibleUsers().length }} account(s)</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Username</th><th>Role</th><th>Contact</th><th>Linked to</th><th></th></tr>
+          </thead>
+          <tbody>
+            @for (u of visibleUsers(); track u.id) {
+              <tr>
+                <td>{{ u.name }}</td>
+                <td>{{ u.username }}</td>
+                <td><span class="chip">{{ roleLabels[u.role] }}</span></td>
+                <td class="muted">{{ u.phone || u.email || '—' }}</td>
+                <td class="muted">
+                  @if (u.role === 'parent') {
+                    {{ data.user(u.childId)?.name ?? 'No child linked' }}
+                  } @else if (u.role === 'student') {
+                    {{ u.enrolled ? 'On class sheet' : 'Not on class sheet' }}
+                  }
+                </td>
+                <td class="actions-cell">
+                  @if (u.id === me()?.id) {
+                    <span class="muted">You</span>
+                  } @else if (pendingDelete() === u.id) {
+                    <button type="button" class="btn small danger" (click)="confirmDelete(u.id)">Confirm</button>
+                    <button type="button" class="btn small" (click)="pendingDelete.set(null)">Cancel</button>
+                  } @else {
+                    <button type="button" class="btn small" (click)="pendingDelete.set(u.id)">Delete</button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+
+  @case ('create') {
+    <section class="card form-card">
+      <h2>Create a new account</h2>
+      <form [formGroup]="form" (ngSubmit)="create()">
+        <div class="form-grid">
+          <label>
+            Full name
+            <input formControlName="name" />
+          </label>
+          <label>
+            Role
+            <select formControlName="role">
+              @for (r of roles; track r) {
+                <option [value]="r">{{ roleLabels[r] }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Username
+            <input formControlName="username" autocomplete="off" />
+          </label>
+          <label>
+            Password <small class="muted">(min. 6 characters)</small>
+            <input type="password" formControlName="password" autocomplete="new-password" />
+          </label>
+          <label>
+            Email
+            <input type="email" formControlName="email" />
+          </label>
+          <label>
+            Phone {{ form.controls.role.value === 'parent' ? '(for absence messages)' : '' }}
+            <input type="tel" formControlName="phone" />
+          </label>
+          @if (form.controls.role.value === 'parent') {
+            <label>
+              Child
+              <select formControlName="childId">
+                <option value="">Select a student…</option>
+                @for (s of data.students(); track s.id) {
+                  <option [value]="s.id">{{ s.name }}</option>
+                }
+              </select>
+            </label>
+          }
+        </div>
+
+        @if (formError()) {
+          <p class="form-error" role="alert">{{ formError() }}</p>
+        }
+        @if (formSuccess()) {
+          <p class="form-success" role="status">{{ formSuccess() }}</p>
+        }
+        <button type="submit" class="btn primary">Create account</button>
+      </form>
+    </section>
+  }
+
+  @case ('system') {
+    <div class="stats">
+      @for (c of checks(); track c.label) {
+        <div class="stat" [class.warn]="!c.ok">
+          <span class="stat-value">{{ c.value }}</span>
+          <span class="stat-label">{{ c.label }}</span>
+        </div>
+      }
+    </div>
+
+    <div class="two-col section">
+      <section class="card">
+        <h2>Attendance rules</h2>
+        <form [formGroup]="settingsForm" (ngSubmit)="saveSettings()" class="stack">
+          <label>
+            Class start time
+            <input type="time" formControlName="startTime" />
+          </label>
+          <label>
+            Late after (minutes)
+            <input type="number" min="0" formControlName="lateAfterMinutes" />
+          </label>
+          <label>
+            Maximum absences
+            <input type="number" min="1" formControlName="maxAbsences" />
+          </label>
+          @if (settingsSaved()) {
+            <p class="form-success" role="status">Settings saved.</p>
+          }
+          <button type="submit" class="btn primary" [disabled]="settingsForm.invalid">Save settings</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Security &amp; privacy</h2>
+        <ul class="list">
+          <li>Every portal requires a login and only shows data for that role.</li>
+          <li>Camera frames are processed on the device and never stored. Only the attendance result is saved.</li>
+          <li>Parents can only see their own child's records.</li>
+          <li>Only admins can create or delete accounts.</li>
+        </ul>
+        <h3 class="section-sm">Demo data</h3>
+        <p class="muted">Restores the sample users and attendance history. All changes are lost.</p>
+        @if (confirmReset()) {
+          <button type="button" class="btn danger" (click)="reset()">Yes, reset everything</button>
+          <button type="button" class="btn" (click)="confirmReset.set(false)">Cancel</button>
+        } @else {
+          <button type="button" class="btn" (click)="confirmReset.set(true)">Reset demo data</button>
+        }
+      </section>
+    </div>
+
+    <section class="section card flush">
+      <h2 class="pad">Activity &amp; error log</h2>
+      <div class="table-wrap log">
+        <table>
+          <thead><tr><th>Time</th><th>Level</th><th>Event</th></tr></thead>
+          <tbody>
+            @for (entry of data.logs(); track entry.id) {
+              <tr>
+                <td class="muted nowrap">{{ entry.at | date: 'd MMM, HH:mm' }}</td>
+                <td><span class="level" [attr.data-level]="entry.level">{{ entry.level }}</span></td>
+                <td>{{ entry.message }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+}

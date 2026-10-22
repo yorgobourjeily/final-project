@@ -1,0 +1,24 @@
+<div class="list-header">
+  <h2>
+    Notifications
+    @if (unread() > 0) {
+      <span class="count">{{ unread() }} new</span>
+    }
+  </h2>
+  @if (unread() > 0) {
+    <button type="button" class="btn small" (click)="markAllRead.emit()">Mark all as read</button>
+  }
+</div>
+
+@if (items().length === 0) {
+  <p class="empty">No notifications.</p>
+} @else {
+  <ul class="notifications">
+    @for (n of items(); track n.id) {
+      <li [class.unread]="!n.read" [attr.data-kind]="n.kind">
+        <span class="message">{{ n.message }}</span>
+        <time class="muted">{{ n.createdAt | date: 'd MMM, HH:mm' }}</time>
+      </li>
+    }
+  </ul>
+}

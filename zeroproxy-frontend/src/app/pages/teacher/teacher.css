@@ -1,0 +1,8 @@
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; margin-bottom: 1rem; }
+.class-times { padding: 0.75rem 1rem; background: var(--bg); border-radius: 8px; }
+.minutes { width: 5rem; }
+.row-warn { background: var(--bad-soft); }
+.warn-text { color: var(--bad); font-size: 0.8rem; font-weight: 600; margin-left: 0.35rem; }
+.people { list-style: none; margin: 0; padding: 0; }
+.people li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
+.people li:last-child { border-bottom: 0; }

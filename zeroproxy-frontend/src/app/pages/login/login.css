@@ -1,0 +1,17 @@
+.login-layout {
+  display: grid; gap: 2.5rem; align-items: center;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  min-height: 70vh;
+}
+.intro h1 { font-size: clamp(1.9rem, 4.5vw, 2.8rem); }
+.intro p:last-child { color: var(--muted); max-width: 45ch; }
+.login-card { max-width: 440px; width: 100%; justify-self: center; }
+form { display: grid; gap: 0.9rem; }
+.demo { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.demo-account {
+  font: inherit; text-align: left; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.5rem 0.7rem; cursor: pointer; display: grid; font-size: 0.85rem;
+}
+.demo-account:hover { border-color: var(--accent); }
+.demo-account span { color: var(--muted); font-size: 0.78rem; }

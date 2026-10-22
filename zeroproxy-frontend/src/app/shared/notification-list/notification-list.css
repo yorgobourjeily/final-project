@@ -1,0 +1,14 @@
+.list-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+.list-header h2 { margin: 0; }
+.count { font-size: 0.8rem; background: var(--bad); color: #fff; border-radius: 999px; padding: 0.1rem 0.55rem; vertical-align: middle; }
+.notifications { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow-y: auto; }
+.notifications li {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem;
+  padding: 0.7rem 0.9rem; border-left: 4px solid var(--border); border-radius: 6px; margin-bottom: 0.5rem;
+  background: var(--bg);
+}
+.notifications li[data-kind='late'] { border-left-color: var(--warn); }
+.notifications li[data-kind='absent'] { border-left-color: var(--bad); }
+.notifications li[data-kind='limit'] { border-left-color: var(--accent); }
+.notifications li.unread { background: var(--navy-soft); font-weight: 500; }
+time { font-size: 0.8rem; white-space: nowrap; }

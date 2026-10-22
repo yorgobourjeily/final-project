@@ -1,0 +1,27 @@
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a [routerLink]="user() ? '/' + user()!.role : '/login'" class="brand">
+      <span class="brand-mark" aria-hidden="true">ZP</span>
+      ZeroProxy
+    </a>
+    @if (user(); as u) {
+      <div class="session">
+        <span class="who">
+          {{ u.name }} <span class="role">{{ roleLabels[u.role] }}</span>
+        </span>
+        @if (unread() > 0) {
+          <span class="bell" [attr.aria-label]="unread() + ' unread notifications'">{{ unread() }}</span>
+        }
+        <button type="button" class="btn small light" (click)="auth.logout()">Log out</button>
+      </div>
+    }
+  </div>
+</header>
+
+<main class="container">
+  <router-outlet />
+</main>
+
+<footer class="footer">
+  <div class="container">ZeroProxy · Smart Attendance System Using Facial Recognition</div>
+</footer>

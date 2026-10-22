@@ -1,0 +1,14 @@
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem 1.25rem; }
+.actions-cell { white-space: nowrap; text-align: right; }
+.actions-cell .btn + .btn { margin-left: 0.35rem; }
+.form-card { max-width: 760px; }
+.form-grid { display: grid; gap: 0.9rem 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); margin-bottom: 1rem; }
+.stack { display: grid; gap: 0.9rem; }
+.section-sm { margin-top: 1.5rem; }
+.pad { padding: 1.25rem 1.25rem 0; }
+.log { max-height: 420px; overflow-y: auto; }
+.nowrap { white-space: nowrap; }
+.level { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--navy-soft); }
+.level[data-level='warning'] { background: var(--warn-soft); color: var(--warn); }
+.level[data-level='error'] { background: var(--bad-soft); color: var(--bad); }
+.btn + .btn { margin-left: 0.5rem; }

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv attendance-frontend *)",
+      "Bash(rm -rf .angular dist)",
+      "Bash(sed -i 's/attendance-frontend/zeroproxy-frontend/g' package.json angular.json)",
+      "Bash(npx ng *)",
+      "Read(//c/Users/user/Desktop/**)"
+    ]
+  }
+}

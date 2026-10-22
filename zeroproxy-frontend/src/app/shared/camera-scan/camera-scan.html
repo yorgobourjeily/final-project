@@ -1,0 +1,38 @@
+<div class="camera" [class.scanning]="state() === 'scanning'">
+  <video #video autoplay playsinline muted [hidden]="state() !== 'live' && state() !== 'scanning'"></video>
+  @if (state() === 'live' || state() === 'scanning') {
+    <div class="face-frame" aria-hidden="true"></div>
+  } @else {
+    <div class="placeholder">
+      @if (state() === 'starting') {
+        Starting camera…
+      } @else if (state() === 'error') {
+        {{ error() }}
+      } @else {
+        Camera is off
+      }
+    </div>
+  }
+  @if (state() === 'scanning') {
+    <div class="scan-line" aria-hidden="true"></div>
+  }
+</div>
+
+<div class="actions">
+  @switch (state()) {
+    @case ('idle') {
+      <button type="button" class="btn primary" (click)="start()">Open camera</button>
+    }
+    @case ('live') {
+      <button type="button" class="btn primary" (click)="scan()">Scan my face</button>
+      <button type="button" class="btn" (click)="stop()">Close camera</button>
+    }
+    @case ('scanning') {
+      <p class="muted" role="status">Recognising face…</p>
+    }
+    @case ('error') {
+      <button type="button" class="btn" (click)="start()">Try again</button>
+      <button type="button" class="btn primary" (click)="scan()">Demo scan without camera</button>
+    }
+  }
+</div>
