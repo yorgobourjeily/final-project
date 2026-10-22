@@ -1,15 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { AuthService } from '../../auth.service';
 import { DataService } from '../../data.service';
 import { dateKey } from '../../utils';
-import { AttendanceSummary } from '../../shared/attendance-summary/attendance-summary';
-import { AttendanceTable } from '../../shared/attendance-table/attendance-table';
-import { NotificationList } from '../../shared/notification-list/notification-list';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
+import { StudentAttendance } from '../../shared/student-attendance/student-attendance';
 
 @Component({
   selector: 'app-parent',
-  imports: [AttendanceSummary, AttendanceTable, NotificationList, StatusBadge],
+  imports: [StatusBadge, StudentAttendance],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './parent.html',
   styleUrl: './parent.css',
@@ -17,9 +15,27 @@ import { StatusBadge } from '../../shared/status-badge/status-badge';
 export class Parent {
   protected readonly data = inject(DataService);
   protected readonly user = inject(AuthService).user;
+  private readonly chosenChildId = signal<string | null>(null);
 
-  protected readonly child = computed(() => this.data.user(this.user()?.childId));
-  protected readonly history = computed(() => this.data.recordsOf(this.child()?.id ?? ''));
-  protected readonly todayRecord = computed(() => this.history().find((r) => r.date === dateKey()));
-  protected readonly notifications = computed(() => this.data.notificationsOf(this.user()?.id ?? ''));
+  /** All students linked to this parent, with today's status in each of their classes. */
+  protected readonly children = computed(() => {
+    const today = dateKey();
+    return this.data.childrenOf(this.user()?.id ?? '').map((child) => ({
+      child,
+      classes: this.data.classesOf(child.id).map((schoolClass) => ({
+        schoolClass,
+        today: this.data.recordOn(child.id, schoolClass.id, today),
+      })),
+    }));
+  });
+
+  /** The child whose attendance is shown: the one picked, or the first. */
+  protected readonly child = computed(() => {
+    const all = this.children().map((c) => c.child);
+    return all.find((c) => c.id === this.chosenChildId()) ?? all[0];
+  });
+
+  protected pick(childId: string) {
+    this.chosenChildId.set(childId);
+  }
 }

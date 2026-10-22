@@ -1,0 +1,25 @@
+:host { display: grid; gap: 0.3rem; }
+.search-label { display: block; font-size: 0.88rem; font-weight: 500; }
+.search { position: relative; }
+.search input { width: 100%; }
+
+/* One dropdown box under the input */
+.matches {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 5; margin: 0.25rem 0 0; padding: 0.25rem;
+  list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 45 91 / 0.12); max-height: 280px; overflow-y: auto;
+}
+:host(.inline) .matches { position: static; box-shadow: none; }
+.matches li { margin: 0; }
+.match {
+  all: unset; box-sizing: border-box; width: 100%; cursor: pointer;
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.55rem 0.7rem; border-radius: 6px;
+  font-size: 0.92rem; color: var(--text);
+}
+.match:hover, .match:focus-visible { background: var(--navy-soft); }
+.match-id { font-weight: 600; color: var(--navy); min-width: 3.5rem; }
+.match-name { flex: 1; }
+
+.hint { margin: 0; font-size: 0.88rem; font-weight: 500; }
+.hint.found { color: var(--good); }
+.hint.none { color: var(--bad); }

@@ -1,8 +1,13 @@
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; margin-bottom: 1rem; }
+.class-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 1rem; }
+.class-picker select { font-weight: 600; color: var(--navy); }
 .class-times { padding: 0.75rem 1rem; background: var(--bg); border-radius: 8px; }
 .minutes { width: 5rem; }
-.row-warn { background: var(--bad-soft); }
-.warn-text { color: var(--bad); font-size: 0.8rem; font-weight: 600; margin-left: 0.35rem; }
-.people { list-style: none; margin: 0; padding: 0; }
-.people li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
-.people li:last-child { border-bottom: 0; }
+tr.changed { background: var(--warn-soft); }
+.unsaved { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; color: var(--warn); margin-left: 0.4rem; }
+.submit-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1rem;
+  border-top: 1px solid var(--border); margin-top: 1rem; padding-top: 1rem;
+}
+.submit-actions { display: flex; gap: 0.5rem; }
+.form-error, .form-success { margin-top: 0.9rem; }

@@ -39,6 +39,7 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
+          "options": { "proxyConfig": "proxy.conf.json" },
           "configurations": {
             "production": { "buildTarget": "zeroproxy-frontend:build:production" },
             "development": { "buildTarget": "zeroproxy-frontend:build:development" }

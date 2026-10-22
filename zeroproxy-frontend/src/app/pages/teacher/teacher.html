@@ -2,158 +2,181 @@
   <header class="page-header">
     <p class="eyebrow">Teacher portal</p>
     <h1>Welcome, {{ me.name }}</h1>
+    @if (me.teacherNumber) {
+      <p>Teacher ID <strong>{{ me.teacherNumber }}</strong></p>
+    }
   </header>
 
-  <nav class="tabs" aria-label="Teacher sections">
-    <button type="button" [class.active]="tab() === 'sheet'" (click)="tab.set('sheet')">Attendance sheet</button>
-    <button type="button" [class.active]="tab() === 'history'" (click)="tab.set('history')">History</button>
-    <button type="button" [class.active]="tab() === 'class'" (click)="tab.set('class')">Manage class</button>
-    <button type="button" [class.active]="tab() === 'alerts'" (click)="tab.set('alerts')">
-      Alerts
-      @if (unread() > 0) {
-        <span class="tab-count">{{ unread() }}</span>
-      }
-    </button>
-  </nav>
+  @if (currentClass(); as cls) {
+    <div class="class-picker">
+      <label class="inline">
+        Class
+        <select (change)="onClass($event)" [disabled]="changeCount() > 0">
+          @for (c of myClasses(); track c.id) {
+            <option [value]="c.id" [selected]="c.id === cls.id">{{ c.name }}</option>
+          }
+        </select>
+      </label>
+      <span class="muted">{{ classStudents().length }} student(s) · {{ cls.startTime }}–{{ cls.endTime }}</span>
+    </div>
 
-  @switch (tab()) {
-    @case ('sheet') {
-      <section class="card">
-        <div class="toolbar">
-          <label class="inline">
-            Date
-            <input type="date" [value]="date()" [max]="today" (change)="onDate($event)" />
-          </label>
-        </div>
-        <div class="toolbar class-times">
-          <label class="inline">
-            Class starts at
-            <input type="time" [value]="data.settings().startTime" (change)="onStartTime($event)" />
-          </label>
-          <label class="inline">
-            Late after
-            <input type="number" min="0" class="minutes" [value]="data.settings().lateAfterMinutes" (change)="onLateMinutes($event)" />
-            minutes
-          </label>
-          <span class="muted">
-            Arrivals after {{ lateAfter() }} count as late. Students not marked by then are set to
-            absent automatically. You can still change any of them below.
-          </span>
-        </div>
-        @if (message()) {
-          <p class="form-success" role="status">{{ message() }}</p>
+    <nav class="tabs" aria-label="Teacher sections">
+      <button type="button" [class.active]="tab() === 'sheet'" (click)="tab.set('sheet')">Attendance sheet</button>
+      <button type="button" [class.active]="tab() === 'history'" (click)="tab.set('history')">History</button>
+      <button type="button" [class.active]="tab() === 'alerts'" (click)="tab.set('alerts')">
+        Alerts
+        @if (unread() > 0) {
+          <span class="tab-count">{{ unread() }}</span>
         }
+      </button>
+    </nav>
 
-        @if (sheet().length === 0) {
-          <p class="empty">No students on the class sheet. Add some in “Manage class”.</p>
-        } @else {
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Student</th><th>Status</th><th>Arrival time</th><th>Change status</th></tr>
-              </thead>
-              <tbody>
-                @for (row of sheet(); track row.student.id) {
-                  <tr>
-                    <td>{{ row.student.name }}</td>
-                    <td><app-status-badge [status]="row.record?.status" /></td>
-                    <td>
-                      <input
-                        type="time"
-                        [value]="row.record?.time ?? ''"
-                        [attr.aria-label]="'Arrival time for ' + row.student.name"
-                        (change)="onTime(row.student.id, $event)"
-                      />
-                    </td>
-                    <td>
-                      <select [attr.aria-label]="'Status for ' + row.student.name" (change)="onStatus(row.student.id, $event)">
-                        <option value="present" [selected]="row.record?.status === 'present'">Present</option>
-                        <option value="late" [selected]="row.record?.status === 'late'">Late</option>
-                        <option value="absent" [selected]="!row.record || row.record.status === 'absent'">Absent</option>
-                      </select>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+    @switch (tab()) {
+      @case ('sheet') {
+        <section class="card">
+          <div class="toolbar">
+            <label class="inline">
+              Date
+              <input type="date" [value]="date()" [max]="today" [disabled]="changeCount() > 0" (change)="onDate($event)" />
+            </label>
+            @if (changeCount() > 0) {
+              <span class="muted">Submit or discard your changes to switch class or day.</span>
+            }
           </div>
-        }
-      </section>
-    }
+          <div class="toolbar class-times">
+            <label class="inline">
+              {{ cls.name }} starts at
+              <input type="time" [value]="editedClass()?.startTime" (change)="onClassTime('startTime', $event)" />
+            </label>
+            <label class="inline">
+              ends at
+              <input type="time" [value]="editedClass()?.endTime" (change)="onClassTime('endTime', $event)" />
+            </label>
+            <label class="inline">
+              Late after
+              <input type="number" min="0" class="minutes" [value]="editedClass()?.lateAfterMinutes" (change)="onLateMinutes($event)" />
+              minutes
+            </label>
+            <span class="muted">Arrivals after {{ lateAfter() }} count as late.</span>
+          </div>
 
-    @case ('history') {
-      <section class="card flush">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Student</th><th>Present</th><th>Late</th><th>Absent</th><th></th></tr>
-            </thead>
-            <tbody>
-              @for (row of overview(); track row.student.id) {
-                <tr [class.row-warn]="row.absent >= maxAbsences() - 1">
-                  <td>{{ row.student.name }}</td>
-                  <td>{{ row.present }}</td>
-                  <td>{{ row.late }}</td>
-                  <td>
-                    {{ row.absent }} / {{ maxAbsences() }}
-                    @if (row.absent >= maxAbsences() - 1) {
-                      <span class="warn-text">near limit</span>
-                    }
-                  </td>
-                  <td><button type="button" class="btn small" (click)="historyOf.set(row.student.id)">View</button></td>
-                </tr>
+          @if (sheet().length === 0) {
+            <p class="empty">No students in {{ cls.name }} yet. The admin can add them.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Student</th><th>Student ID</th><th>Status</th><th>Arrival time</th><th>Change status</th></tr>
+                </thead>
+                <tbody>
+                  @for (row of sheet(); track row.student.id) {
+                    <tr [class.changed]="row.changed">
+                      <td>
+                        {{ row.student.name }}
+                        @if (row.changed) {
+                          <span class="unsaved">unsaved</span>
+                        }
+                      </td>
+                      <td class="muted">{{ row.student.studentNumber }}</td>
+                      <td><app-status-badge [status]="row.status" /></td>
+                      <td>
+                        <input
+                          type="time"
+                          [value]="row.time"
+                          [attr.aria-label]="'Arrival time for ' + row.student.name"
+                          (change)="onTime(row.student.id, $event)"
+                        />
+                      </td>
+                      <td>
+                        <select [attr.aria-label]="'Status for ' + row.student.name" (change)="onStatus(row.student.id, $event)">
+                          <option value="present" [selected]="row.status === 'present'">Present</option>
+                          <option value="late" [selected]="row.status === 'late'">Late</option>
+                          <option value="absent" [selected]="!row.status || row.status === 'absent'">Absent</option>
+                        </select>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+
+          <div class="submit-bar">
+            <span class="muted">
+              @if (changeCount() > 0) {
+                {{ changeCount() }} unsaved change(s).
               }
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      @if (selectedStudent(); as s) {
-        <section class="section">
-          <h2>{{ s.name }}</h2>
-          <app-attendance-summary [records]="selectedHistory()" [maxAbsences]="maxAbsences()" />
-          <div class="card flush">
-            <app-attendance-table [records]="selectedHistory()" />
+              @if (unmarkedCount() > 0) {
+                {{ unmarkedCount() }} student(s) not marked yet will be saved as absent.
+              }
+              @if (!canSubmit()) {
+                Everything on this sheet is saved.
+              }
+            </span>
+            <div class="submit-actions">
+              @if (changeCount() > 0) {
+                <button type="button" class="btn" [disabled]="saving()" (click)="discard()">Discard</button>
+              }
+              <button type="button" class="btn primary" [disabled]="!canSubmit() || saving()" (click)="submit()">
+                {{ saving() ? 'Submitting…' : 'Submit attendance' }}
+              </button>
+            </div>
           </div>
+          @if (error()) {
+            <p class="form-error" role="alert">{{ error() }}</p>
+          }
+          @if (message()) {
+            <p class="form-success" role="status">{{ message() }}</p>
+          }
+        </section>
+      }
+
+      @case ('history') {
+        <section class="card flush">
+          @if (overview().length === 0) {
+            <p class="empty">No students in {{ cls.name }} yet.</p>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Student</th><th>Present</th><th>Late</th><th>Absent</th><th></th></tr>
+                </thead>
+                <tbody>
+                  @for (row of overview(); track row.student.id) {
+                    <tr>
+                      <td>{{ row.student.name }}</td>
+                      <td>{{ row.present }}</td>
+                      <td>{{ row.late }}</td>
+                      <td>{{ row.absent }} / {{ maxAbsences() }}</td>
+                      <td><button type="button" class="btn small" (click)="historyOf.set(row.student.id)">View</button></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </section>
+
+        @if (selectedStudent(); as s) {
+          <section class="section">
+            <h2>{{ s.name }}</h2>
+            <app-attendance-summary [records]="selectedHistory()" [maxAbsences]="maxAbsences()" />
+            <div class="card flush">
+              <app-attendance-table [records]="selectedHistory()" />
+            </div>
+          </section>
+        }
+      }
+
+      @case ('alerts') {
+        <section class="card">
+          <app-notification-list [items]="notifications()" (markAllRead)="data.markAllRead(me.id)" />
         </section>
       }
     }
-
-    @case ('class') {
-      <div class="two-col">
-        <section class="card">
-          <h2>On the attendance sheet</h2>
-          <ul class="people">
-            @for (s of data.enrolledStudents(); track s.id) {
-              <li>
-                <span>{{ s.name }}</span>
-                <button type="button" class="btn small danger" (click)="data.setEnrolled(s.id, false)">Remove</button>
-              </li>
-            } @empty {
-              <li class="muted">No students yet.</li>
-            }
-          </ul>
-        </section>
-        <section class="card">
-          <h2>Other students</h2>
-          <ul class="people">
-            @for (s of notEnrolled(); track s.id) {
-              <li>
-                <span>{{ s.name }}</span>
-                <button type="button" class="btn small" (click)="data.setEnrolled(s.id, true)">Add</button>
-              </li>
-            } @empty {
-              <li class="muted">Every student account is already on the sheet.</li>
-            }
-          </ul>
-        </section>
-      </div>
-    }
-
-    @case ('alerts') {
-      <section class="card">
-        <app-notification-list [items]="notifications()" (markAllRead)="data.markAllRead(me.id)" />
-      </section>
-    }
+  } @else {
+    <div class="card">
+      <p>You are not assigned to a class yet. Please ask the school administration to add you to one.</p>
+    </div>
   }
 }

@@ -14,6 +14,12 @@ export const toMinutes = (hhmm: string) => {
   return h * 60 + m;
 };
 
+/** HH:mm plus some minutes, as HH:mm. */
+export const addMinutes = (hhmm: string, minutes: number) => {
+  const total = (toMinutes(hhmm) + minutes) % (24 * 60);
+  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+};
+
 /** The last `count` weekdays before today, oldest first. */
 export function pastWeekdays(count: number, from = new Date()): string[] {
   const days: string[] = [];

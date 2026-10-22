@@ -6,6 +6,9 @@
 <nav class="tabs" aria-label="Admin sections">
   <button type="button" [class.active]="tab() === 'users'" (click)="tab.set('users')">User accounts</button>
   <button type="button" [class.active]="tab() === 'create'" (click)="tab.set('create')">Create account</button>
+  <button type="button" [class.active]="tab() === 'classes'" (click)="tab.set('classes')">Classes</button>
+  <button type="button" [class.active]="tab() === 'parents'" (click)="tab.set('parents')">Parent links</button>
+  <button type="button" [class.active]="tab() === 'scanner'" (click)="tab.set('scanner')">Camera scanner</button>
   <button type="button" [class.active]="tab() === 'system'" (click)="tab.set('system')">
     System
     @if (errorCount() > 0) {
@@ -14,40 +17,48 @@
   </button>
 </nav>
 
+@if (userError()) {
+  <p class="form-error" role="alert">{{ userError() }}</p>
+}
+
 @switch (tab()) {
   @case ('users') {
     <section class="card flush">
-      <div class="toolbar">
-        <label class="inline">
-          Show
-          <select (change)="onFilter($event)">
-            <option value="all">All roles</option>
-            @for (r of roles; track r) {
-              <option [value]="r" [selected]="filter() === r">{{ roleLabels[r] }}s</option>
-            }
-          </select>
-        </label>
-        <span class="muted">{{ visibleUsers().length }} account(s)</span>
+      <div class="toolbar users-toolbar">
+        <input
+          class="user-search"
+          type="search"
+          [value]="userSearch()"
+          (input)="userSearch.set(inputValue($event))"
+          placeholder="Search by name or ID"
+          aria-label="Search accounts by name or ID"
+          autocomplete="off"
+        />
+        <div class="users-filter">
+          <span class="muted">{{ visibleUsers().length }} account(s)</span>
+          <label class="inline">
+            Show
+            <select (change)="onFilter($event)">
+              <option value="all">All roles</option>
+              @for (r of roles; track r) {
+                <option [value]="r" [selected]="filter() === r">{{ roleLabels[r] }}s</option>
+              }
+            </select>
+          </label>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Name</th><th>Username</th><th>Role</th><th>Contact</th><th>Linked to</th><th></th></tr>
+            <tr><th>Name</th><th>Role</th><th>ID</th><th>Contact</th><th></th></tr>
           </thead>
           <tbody>
             @for (u of visibleUsers(); track u.id) {
               <tr>
                 <td>{{ u.name }}</td>
-                <td>{{ u.username }}</td>
                 <td><span class="chip">{{ roleLabels[u.role] }}</span></td>
+                <td>{{ u.loginId }}</td>
                 <td class="muted">{{ u.phone || u.email || '—' }}</td>
-                <td class="muted">
-                  @if (u.role === 'parent') {
-                    {{ data.user(u.childId)?.name ?? 'No child linked' }}
-                  } @else if (u.role === 'student') {
-                    {{ u.enrolled ? 'On class sheet' : 'Not on class sheet' }}
-                  }
-                </td>
                 <td class="actions-cell">
                   @if (u.id === me()?.id) {
                     <span class="muted">You</span>
@@ -59,6 +70,8 @@
                   }
                 </td>
               </tr>
+            } @empty {
+              <tr><td colspan="5" class="muted">No account matches "{{ userSearch().trim() }}".</td></tr>
             }
           </tbody>
         </table>
@@ -84,11 +97,11 @@
             </select>
           </label>
           <label>
-            Username
-            <input formControlName="username" autocomplete="off" />
+            {{ roleLabels[form.controls.role.value] }} ID
+            <input class="generated-id" [value]="data.nextLoginId(form.controls.role.value)" readonly tabindex="-1" />
           </label>
           <label>
-            Password <small class="muted">(min. 6 characters)</small>
+            Password
             <input type="password" formControlName="password" autocomplete="new-password" />
           </label>
           <label>
@@ -96,12 +109,12 @@
             <input type="email" formControlName="email" />
           </label>
           <label>
-            Phone {{ form.controls.role.value === 'parent' ? '(for absence messages)' : '' }}
+            Phone
             <input type="tel" formControlName="phone" />
           </label>
           @if (form.controls.role.value === 'parent') {
             <label>
-              Child
+              Child <small class="muted">(link more children later in Parent links)</small>
               <select formControlName="childId">
                 <option value="">Select a student…</option>
                 @for (s of data.students(); track s.id) {
@@ -110,7 +123,21 @@
               </select>
             </label>
           }
+          @if (form.controls.role.value === 'student') {
+            <label>
+              Class
+              <select formControlName="classId">
+                <option value="">No class yet</option>
+                @for (c of data.classes(); track c.id) {
+                  <option [value]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </label>
+          }
         </div>
+        @if (form.controls.role.value === 'teacher') {
+          <p class="muted">Assign the teacher to one or more classes in the Classes tab.</p>
+        }
 
         @if (formError()) {
           <p class="form-error" role="alert">{{ formError() }}</p>
@@ -120,6 +147,310 @@
         }
         <button type="submit" class="btn primary">Create account</button>
       </form>
+    </section>
+  }
+
+  @case ('classes') {
+    <section class="card">
+      <h2>Create a class</h2>
+      <form [formGroup]="classForm" (ngSubmit)="createClass()" class="class-form">
+        <label>
+          Class name
+          <input formControlName="name" placeholder="e.g. Grade 11 – A" />
+        </label>
+        <label>
+          Starts at
+          <input type="time" formControlName="startTime" />
+        </label>
+        <label>
+          Ends at
+          <input type="time" formControlName="endTime" />
+        </label>
+        <label>
+          Late after (minutes)
+          <input type="number" min="0" formControlName="lateAfterMinutes" />
+        </label>
+        <label>
+          Maximum absences
+          <input type="number" min="1" formControlName="maxAbsences" />
+        </label>
+        <button type="submit" class="btn primary">Create class</button>
+      </form>
+    </section>
+
+    @if (classError()) {
+      <p class="form-error section-sm" role="alert">{{ classError() }}</p>
+    }
+    @if (classMessage()) {
+      <p class="form-success section-sm" role="status">{{ classMessage() }}</p>
+    }
+
+    @for (c of data.classes(); track c.id) {
+      <section class="card class-card section">
+        <div class="class-head">
+          <label class="class-name">
+            <span class="sr-only">Class name</span>
+            <input [value]="c.name" (change)="onClassName(c, $event)" aria-label="Class name" />
+          </label>
+          @if (pendingClassDelete() === c.id) {
+            <span>
+              <button type="button" class="btn small danger" (click)="deleteClass(c)">Delete class</button>
+              <button type="button" class="btn small" (click)="pendingClassDelete.set(null)">Cancel</button>
+            </span>
+          } @else {
+            <button type="button" class="btn small" (click)="pendingClassDelete.set(c.id)">Delete</button>
+          }
+        </div>
+
+        <div class="rules">
+          <label class="inline">
+            Starts at
+            <input type="time" [value]="c.startTime" (change)="onClassStart(c, $event)" />
+          </label>
+          <label class="inline">
+            Ends at
+            <input type="time" [value]="c.endTime" (change)="onClassEnd(c, $event)" />
+          </label>
+          <label class="inline">
+            Late after
+            <input type="number" min="0" class="minutes" [value]="c.lateAfterMinutes" (change)="onClassLate(c, $event)" />
+            minutes
+          </label>
+          <label class="inline">
+            Maximum absences
+            <input type="number" min="1" class="minutes" [value]="c.maxAbsences" (change)="onClassMax(c, $event)" />
+          </label>
+        </div>
+
+        <div class="two-col">
+          <div>
+            <h3>Teachers ({{ c.teacherIds.length }})</h3>
+            <ul class="people">
+              @for (t of teachersOf(c); track t.id) {
+                <li>
+                  <span><strong class="child-id">{{ t.teacherNumber }}</strong> {{ t.name }}</span>
+                  <button type="button" class="btn small danger" (click)="removeTeacher(c, t)">Remove</button>
+                </li>
+              } @empty {
+                <li class="muted">No teacher yet. Nobody can see this class's sheet.</li>
+              }
+            </ul>
+            <div class="add-row">
+              @if (teachersNotIn(c).length > 0) {
+                <span class="add-label">Add a teacher</span>
+                <div class="add-control">
+                  <select #teacherPick [attr.aria-label]="'Teacher to add to ' + c.name">
+                    <option value="" selected>Choose a teacher…</option>
+                    @for (t of teachersNotIn(c); track t.id) {
+                      <option [value]="t.id">{{ t.teacherNumber }} · {{ t.name }}</option>
+                    }
+                  </select>
+                  <button type="button" class="btn primary add-btn" (click)="addTeacher(c, teacherPick)">+ Add</button>
+                </div>
+              } @else {
+                <p class="muted">
+                  Every teacher already teaches this class.
+                  <button type="button" class="btn small" (click)="startCreate('teacher')">+ Create a teacher account</button>
+                </p>
+              }
+            </div>
+          </div>
+
+          <div>
+            <h3>Students ({{ data.studentsIn(c.id).length }})</h3>
+            <ul class="people">
+              @for (s of data.studentsIn(c.id); track s.id) {
+                <li>
+                  <span>{{ s.name }}</span>
+                  <button type="button" class="btn small danger" (click)="removeStudent(c, s)">Remove</button>
+                </li>
+              } @empty {
+                <li class="muted">No students yet.</li>
+              }
+            </ul>
+            <div class="add-row">
+              @if (studentsNotIn(c).length > 0) {
+                <app-student-search
+                  label="Add a student"
+                  [students]="studentsNotIn(c)"
+                  [clearOnPick]="true"
+                  placeholder="Type a student ID"
+                  (picked)="addStudent(c, $event)"
+                />
+              } @else {
+                <p class="muted">
+                  Every student is already in this class.
+                  <button type="button" class="btn small" (click)="startCreate('student')">+ Create a student account</button>
+                </p>
+              }
+            </div>
+          </div>
+        </div>
+      </section>
+    } @empty {
+      <p class="empty">No classes yet. Create one above.</p>
+    }
+  }
+
+  @case ('parents') {
+    @if (parentMessage()) {
+      <p class="form-success" role="status">{{ parentMessage() }}</p>
+    }
+    <section class="card flush">
+      <h2 class="pad">Parent ↔ student links</h2>
+      <p class="pad muted">
+        A parent can be linked to several children, and a student can have several parents. Parents see the
+        attendance of every child they are linked to and get those children's absence and late messages.
+      </p>
+      <div class="toolbar">
+        <label class="inline parent-filter">
+          Search
+          <input
+            [value]="parentFilter()"
+            (input)="parentFilter.set(inputValue($event))"
+            placeholder="Parent name or a child's student ID"
+            autocomplete="off"
+          />
+        </label>
+        <span class="muted">{{ visibleParents().length }} parent(s)</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Parent</th><th>Contact</th><th>Children</th><th>Link a child by student ID</th></tr>
+          </thead>
+          <tbody>
+            @for (p of visibleParents(); track p.id) {
+              <tr>
+                <td>{{ p.name }}</td>
+                <td class="muted">{{ p.phone || p.email || '—' }}</td>
+                <td>
+                  <ul class="links">
+                    @for (s of data.childrenOf(p.id); track s.id) {
+                      <li>
+                        <span>
+                          <strong class="child-id">{{ s.studentNumber }}</strong> {{ s.name }}
+                          @if (data.parentsOf(s.id).length > 1) {
+                            <small class="muted">({{ data.parentsOf(s.id).length }} parents)</small>
+                          }
+                        </span>
+                        <button type="button" class="btn small danger" (click)="unlinkChild(p, s)">Remove</button>
+                      </li>
+                    } @empty {
+                      <li class="muted">Not linked to a student</li>
+                    }
+                  </ul>
+                </td>
+                <td class="link-cell">
+                  @if (studentsNotLinkedTo(p).length > 0) {
+                    <app-student-search
+                      [students]="studentsNotLinkedTo(p)"
+                      [clearOnPick]="true"
+                      [floating]="false"
+                      placeholder="Type a student ID"
+                      [ariaLabel]="'Student ID of a child to link to ' + p.name"
+                      (picked)="linkChild(p, $event)"
+                    />
+                  } @else {
+                    <span class="muted">Linked to every student</span>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="muted">
+                  {{ parentFilter().trim() ? 'No parent matches "' + parentFilter().trim() + '".' : 'No parent accounts yet.' }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+
+  @case ('scanner') {
+    <div class="two-col">
+      <section class="card">
+        <h2>Test a scan</h2>
+        <p class="muted">Sends exactly what the camera machine sends when it recognises a face.</p>
+        <div class="stack">
+          <app-student-search label="Student ID" [students]="data.students()" [(value)]="scanId" />
+          <label>
+            Time of arrival
+            <input type="time" [value]="scanTime()" (input)="scanTime.set(inputValue($event))" />
+          </label>
+          @if (scanPreview(); as p) {
+            <p class="preview">
+              @if (p.status) {
+                Counts for <strong>{{ p.className }}</strong> (late after <strong>{{ p.lateAfter }}</strong>),
+                so {{ scanTime() }} should be
+                <span class="badge" [attr.data-status]="p.status">{{ p.status }}</span>
+              } @else {
+                No class still running at {{ scanTime() }} that this student isn't already marked for.
+              }
+            </p>
+          }
+          <div>
+            <span class="add-label">The machine sends</span>
+            <pre class="code">{{ scanPayload() }}</pre>
+          </div>
+          <button type="button" class="btn primary" [disabled]="scanBusy() || !scanId() || !scanTime()" (click)="sendScan()">
+            {{ scanBusy() ? 'Sending…' : 'Send scan' }}
+          </button>
+        </div>
+        @if (scanError()) {
+          <p class="form-error section-sm" role="alert">{{ scanError() }}</p>
+        }
+        @if (scanResult(); as r) {
+          <p class="form-success section-sm" role="status">{{ r.message }}</p>
+          <pre class="code">{{ scanResultJson() }}</pre>
+        }
+      </section>
+
+      <section class="card">
+        <h2>Connect the camera machine</h2>
+        <p>When the camera recognises a student's face, the machine sends their id and time of arrival:</p>
+        <pre class="code">{{ machineRequest }}</pre>
+        <p class="muted">
+          <code>time</code> can be <code>"08:05"</code>, <code>"08:05:30"</code> or a full date-time, and must be today.
+          The backend compares it with the student's class: after <em>start time + late minutes</em> it is late.
+        </p>
+        <ul class="list">
+          <li><strong>201</strong>: saved; the reply has <code>status</code> (present/late), <code>lateAfter</code> and <code>minutesLate</code>. Late = parents messaged.</li>
+          <li><strong>200</strong> with <code>alreadyMarked: true</code>: the student was already marked today.</li>
+          <li><strong>400</strong>: missing/invalid id or time. <strong>404</strong>: no student has that id.</li>
+          <li><strong>401</strong>: wrong or missing device key.</li>
+        </ul>
+        <p class="muted">
+          To test from a terminal: <code>npm run scan -- 2 08:05</code> in <code>zeroproxy-backend</code>.
+        </p>
+      </section>
+    </div>
+
+    <section class="section card flush">
+      <h2 class="pad">Today's camera scans</h2>
+      @if (todayScans().length === 0) {
+        <p class="empty">No faces recognised yet today.</p>
+      } @else {
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Arrived</th><th>Student</th><th>Student ID</th><th>Class</th><th>Late after</th><th>Status</th></tr></thead>
+            <tbody>
+              @for (s of todayScans(); track s.record.id) {
+                <tr>
+                  <td>{{ s.record.time }}</td>
+                  <td>{{ s.student?.name }}</td>
+                  <td>{{ s.student?.studentNumber }}</td>
+                  <td class="muted">{{ s.schoolClass?.name }}</td>
+                  <td class="muted">{{ s.lateAfter }}</td>
+                  <td><span class="badge" [attr.data-status]="s.record.status">{{ s.record.status }}</span></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
     </section>
   }
 
@@ -133,39 +464,19 @@
       }
     </div>
 
-    <div class="two-col section">
+    <div class="section">
       <section class="card">
-        <h2>Attendance rules</h2>
-        <form [formGroup]="settingsForm" (ngSubmit)="saveSettings()" class="stack">
-          <label>
-            Class start time
-            <input type="time" formControlName="startTime" />
-          </label>
-          <label>
-            Late after (minutes)
-            <input type="number" min="0" formControlName="lateAfterMinutes" />
-          </label>
-          <label>
-            Maximum absences
-            <input type="number" min="1" formControlName="maxAbsences" />
-          </label>
-          @if (settingsSaved()) {
-            <p class="form-success" role="status">Settings saved.</p>
-          }
-          <button type="submit" class="btn primary" [disabled]="settingsForm.invalid">Save settings</button>
-        </form>
-      </section>
-
-      <section class="card">
+        <p class="muted">Start and end times, the late limit and maximum absences are set for each class in the Classes tab.</p>
         <h2>Security &amp; privacy</h2>
         <ul class="list">
           <li>Every portal requires a login and only shows data for that role.</li>
           <li>Camera frames are processed on the device and never stored. Only the attendance result is saved.</li>
           <li>Parents can only see their own child's records.</li>
-          <li>Only admins can create or delete accounts.</li>
+          <li>Teachers only see the classes they are assigned to.</li>
+          <li>Only admins can create or delete accounts and classes.</li>
         </ul>
         <h3 class="section-sm">Demo data</h3>
-        <p class="muted">Restores the sample users and attendance history. All changes are lost.</p>
+        <p class="muted">Restores the sample users, classes and attendance history. All changes are lost.</p>
         @if (confirmReset()) {
           <button type="button" class="btn danger" (click)="reset()">Yes, reset everything</button>
           <button type="button" class="btn" (click)="confirmReset.set(false)">Cancel</button>

@@ -18,9 +18,11 @@ export class App {
 
   protected readonly user = this.auth.user;
   protected readonly roleLabels = ROLE_LABELS;
+  /** Unread count for the header badge. Only teachers and admins have a notifications list. */
   protected readonly unread = computed(() => {
-    const id = this.user()?.id;
-    return id ? this.data.notificationsOf(id).filter((n) => !n.read).length : 0;
+    const u = this.user();
+    if (!u || u.role === 'parent' || u.role === 'student') return 0;
+    return this.data.notificationsOf(u.id).filter((n) => !n.read).length;
   });
 
   constructor() {

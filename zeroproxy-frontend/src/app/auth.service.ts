@@ -1,49 +1,47 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { api, session } from './api';
 import { DataService } from './data.service';
-
-const SESSION_KEY = 'zeroproxy-session';
-
-function readSession(): string | null {
-  try {
-    return sessionStorage.getItem(SESSION_KEY);
-  } catch {
-    return null;
-  }
-}
+import { User } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly data = inject(DataService);
   private readonly router = inject(Router);
-  private readonly userId = signal<string | null>(readSession());
+  private readonly userId = signal<string | null>(session.userId);
 
-  /** The logged-in user, or undefined. Becomes undefined if the account is deleted. */
+  /** The logged-in user, or undefined (also when the session expired or the account was deleted). */
   readonly user = computed(() => this.data.user(this.userId() ?? undefined));
 
-  login(username: string, password: string): boolean {
-    const user = this.data
-      .users()
-      .find((u) => u.username === username.trim().toLowerCase() && u.password === password);
-    if (!user) return false;
-
-    this.setSession(user.id);
-    this.router.navigateByUrl(`/${user.role}`);
-    return true;
+  /** Signs in with the account's ID (e.g. "2", "t1", "p2", "a1"). Returns an error message, or null. */
+  async login(id: string, password: string): Promise<string | null> {
+    try {
+      const { token, user } = await api<{ token: string; user: User }>('POST', '/auth/login', { id, password });
+      session.save(token, user.id);
+      this.userId.set(user.id);
+      await this.data.load();
+      this.router.navigateByUrl(`/${user.role}`);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not sign in.';
+    }
   }
 
   logout() {
-    this.setSession(null);
+    session.clear();
+    this.userId.set(null);
+    this.data.clear();
     this.router.navigateByUrl('/login');
   }
 
-  private setSession(id: string | null) {
-    this.userId.set(id);
+  /** On app start: if this tab has a saved session, load the data for it. */
+  async restore() {
+    if (!session.token) return;
     try {
-      if (id) sessionStorage.setItem(SESSION_KEY, id);
-      else sessionStorage.removeItem(SESSION_KEY);
+      await this.data.load();
     } catch {
-      // Session just won't survive a refresh.
+      session.clear();
+      this.userId.set(null);
     }
   }
 }

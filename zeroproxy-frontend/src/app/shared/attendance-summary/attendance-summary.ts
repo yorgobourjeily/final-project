@@ -22,6 +22,4 @@ export class AttendanceSummary {
     if (total === 0) return 100;
     return Math.round(((total - this.counts().absent) / total) * 100);
   });
-
-  protected readonly nearLimit = computed(() => this.counts().absent >= this.maxAbsences() - 1);
 }

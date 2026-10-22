@@ -1,1 +1,11 @@
-.today { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.children { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.child {
+  width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem;
+  font: inherit; text-align: left; padding: 0.7rem 0.9rem; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+}
+.child:hover { border-color: var(--accent); }
+.child.selected { border-color: var(--navy); background: var(--navy-soft); }
+.child-name { font-weight: 500; }
+.child-classes { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
+.child-class { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }

@@ -1,3 +1,34 @@
+.people { list-style: none; margin: 0 0 1rem; padding: 0; }
+.people li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
+.people li:last-child { border-bottom: 0; }
+.add-row { border-top: 1px solid var(--border); padding-top: 0.9rem; display: grid; gap: 0.3rem; }
+.add-row p { margin: 0; }
+.add-label { font-size: 0.88rem; font-weight: 500; }
+.add-control { display: flex; gap: 0.5rem; }
+.add-control select { flex: 1; }
+.add-btn { white-space: nowrap; }
+.code {
+  margin: 0.3rem 0 0; padding: 0.75rem 0.9rem; background: #0d1b2e; color: #dbe7f5; border-radius: 8px;
+  font-size: 0.82rem; overflow-x: auto; white-space: pre;
+}
+.generated-id { background: var(--bg); color: var(--navy); font-weight: 600; cursor: default; }
+.generated-id:focus { outline: none; }
+.preview { margin: 0; padding: 0.6rem 0.8rem; background: var(--bg); border-radius: 8px; font-size: 0.9rem; }
+.parent-filter input { width: min(22rem, 70vw); }
+.child-id { color: var(--navy); margin-right: 0.25rem; }
+.link-cell { min-width: 16rem; vertical-align: top; }
+.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; min-width: 14rem; }
+.links li { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+.pad + .pad { padding-top: 0.25rem; margin: 0; }
+.class-form { display: grid; gap: 0.9rem 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); align-items: end; }
+.class-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.class-name input { font-size: 1.15rem; font-weight: 600; color: var(--navy); }
+.rules { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; padding: 0.75rem 1rem; background: var(--bg); border-radius: 8px; margin-bottom: 1.25rem; }
+.minutes { width: 5rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.users-toolbar { justify-content: space-between; }
+.user-search { flex: 1 1 16rem; max-width: 22rem; }
+.users-filter { display: flex; align-items: center; gap: 1rem; margin-left: auto; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem 1.25rem; }
 .actions-cell { white-space: nowrap; text-align: right; }
 .actions-cell .btn + .btn { margin-left: 0.35rem; }

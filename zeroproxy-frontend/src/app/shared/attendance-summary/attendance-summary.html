@@ -11,13 +11,8 @@
     <span class="stat-value">{{ counts().late }}</span>
     <span class="stat-label">Late</span>
   </div>
-  <div class="stat" data-status="absent" [class.warn]="nearLimit()">
+  <div class="stat" data-status="absent">
     <span class="stat-value">{{ counts().absent }} <small>/ {{ maxAbsences() }}</small></span>
-    <span class="stat-label">
-      Absences
-      @if (nearLimit()) {
-        · near limit
-      }
-    </span>
+    <span class="stat-label">Absences</span>
   </div>
 </div>

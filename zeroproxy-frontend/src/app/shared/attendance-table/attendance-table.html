@@ -9,6 +9,9 @@
           @if (showStudent()) {
             <th>Student</th>
           }
+          @if (showClass()) {
+            <th>Class</th>
+          }
           <th>Status</th>
           <th>Arrived</th>
           <th>Recorded by</th>
@@ -20,6 +23,9 @@
             <td>{{ r.date | date: 'EEE d MMM y' }}</td>
             @if (showStudent()) {
               <td>{{ data.user(r.studentId)?.name }}</td>
+            }
+            @if (showClass()) {
+              <td>{{ data.schoolClass(r.classId)?.name }}</td>
             }
             <td><app-status-badge [status]="r.status" /></td>
             <td>{{ r.time ?? '—' }}</td>

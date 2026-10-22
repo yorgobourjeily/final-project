@@ -5,7 +5,7 @@ import { AttendanceRecord } from '../../models';
 import { StatusBadge } from '../status-badge/status-badge';
 
 const METHOD_LABELS: Record<AttendanceRecord['method'], string> = {
-  face: 'Face scan',
+  face: 'Classroom camera',
   manual: 'Edited by teacher',
   auto: 'Not scanned',
 };
@@ -22,4 +22,5 @@ export class AttendanceTable {
 
   readonly records = input.required<AttendanceRecord[]>();
   readonly showStudent = input(false);
+  readonly showClass = input(false);
 }

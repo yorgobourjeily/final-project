@@ -1,0 +1,37 @@
+@if (label()) {
+  <label class="search-label" [for]="inputId">{{ label() }}</label>
+}
+<div class="search">
+  <input
+    [id]="inputId"
+    [value]="value()"
+    (input)="onInput($event)"
+    (keydown.enter)="pickFirst($event)"
+    [placeholder]="placeholder()"
+    inputmode="numeric"
+    autocomplete="off"
+    role="combobox"
+    [attr.aria-label]="ariaLabel() || null"
+    [attr.aria-controls]="listId"
+    [attr.aria-expanded]="matches().length > 0"
+  />
+  @if (matches().length > 0) {
+    <ul class="matches" [id]="listId" role="listbox" aria-label="Matching students">
+      @for (s of matches(); track s.id) {
+        <li role="option" [attr.aria-selected]="false">
+          <button type="button" class="match" (click)="pick(s)">
+            <span class="match-id">{{ s.studentNumber }}</span>
+            <span class="match-name">{{ s.name }}</span>
+          </button>
+        </li>
+      }
+    </ul>
+  }
+</div>
+@if (matches().length === 0) {
+  @if (!clearOnPick() && exact(); as s) {
+    <p class="hint found">{{ s.name }}</p>
+  } @else if (typed() && !exact()) {
+    <p class="hint none">No student has an ID containing "{{ typed() }}".</p>
+  }
+}

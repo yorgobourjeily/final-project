@@ -2,11 +2,12 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../auth.service';
 
+/** Everyone signs in with their ID: admins a…, teachers t…, parents p…, students digits. */
 const DEMO_ACCOUNTS = [
-  { role: 'Admin', username: 'admin', password: 'admin123' },
-  { role: 'Teacher', username: 'teacher', password: 'teacher123' },
-  { role: 'Parent', username: 'parent3', password: 'parent123' },
-  { role: 'Student', username: 'student1', password: 'student123' },
+  { role: 'Admin', id: 'a1', password: 'admin123' },
+  { role: 'Teacher', id: 't1', password: 'teacher123' },
+  { role: 'Parent', id: 'p3', password: 'parent123' },
+  { role: 'Student', id: '1', password: 'student123' },
 ];
 
 @Component({
@@ -20,23 +21,26 @@ export class Login {
   private readonly auth = inject(AuthService);
   protected readonly demoAccounts = DEMO_ACCOUNTS;
   protected readonly error = signal('');
+  protected readonly busy = signal(false);
 
   protected readonly form = inject(NonNullableFormBuilder).group({
-    username: ['', Validators.required],
+    id: ['', Validators.required],
     password: ['', Validators.required],
   });
 
-  protected fill(username: string, password: string) {
-    this.form.setValue({ username, password });
+  protected fill(id: string, password: string) {
+    this.form.setValue({ id, password });
     this.error.set('');
   }
 
-  protected submit() {
+  protected async submit() {
     if (this.form.invalid) {
-      this.error.set('Enter your username and password.');
+      this.error.set('Enter your ID and password.');
       return;
     }
-    const { username, password } = this.form.getRawValue();
-    if (!this.auth.login(username, password)) this.error.set('Wrong username or password.');
+    const { id, password } = this.form.getRawValue();
+    this.busy.set(true);
+    this.error.set((await this.auth.login(id, password)) ?? '');
+    this.busy.set(false);
   }
 }

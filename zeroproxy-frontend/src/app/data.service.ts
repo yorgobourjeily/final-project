@@ -1,51 +1,66 @@
-import { computed, effect, Injectable, signal } from '@angular/core';
-import { addLog, alertFamily, checkAbsenceLimit, createSeedDb } from './db';
-import { AttendanceRecord, Db, LogLevel, NewUser, Settings, Status, User } from './models';
-import { clock, dateKey, toMinutes, uid } from './utils';
+import { computed, Injectable, signal } from '@angular/core';
+import { api, ApiError, session } from './api';
+import { AttendanceRecord, Db, LogLevel, NewClass, NewUser, Role, SchoolClass, Status, User } from './models';
+import { addMinutes, toMinutes } from './utils';
 
-const STORAGE_KEY = 'zeroproxy-db-v1';
-
-function loadDb(): Db {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Db) : null;
-    if (parsed && Array.isArray(parsed.users) && Array.isArray(parsed.records)) return parsed;
-  } catch {
-    // Storage blocked or corrupt: fall back to fresh demo data.
-  }
-  return createSeedDb();
+/** What the server answers to a camera scan. */
+export interface ScanReply {
+  student: { name: string; id: string; class: string };
+  date: string;
+  /** Arrival time (HH:mm). */
+  time: string;
+  /** Arrivals after this time count as late. */
+  lateAfter: string;
+  minutesLate: number;
+  status: Status;
+  alreadyMarked: boolean;
+  message: string;
 }
 
+/** One row of a submitted attendance sheet. */
+export type SheetEntry = { studentId: string } & ({ status: Status } | { time: string });
+
+/** Account IDs: students digits only, teachers t…, parents p…, admins a… (see nextLoginId). */
+const ID_PREFIX: Record<Role, string> = { student: '', teacher: 't', parent: 'p', admin: 'a' };
+const ID_START: Record<Role, number> = { student: 1, parent: 1, teacher: 1, admin: 1 };
+
+const EMPTY: Db = { users: [], classes: [], records: [], notifications: [], logs: [], settings: { maxAbsences: 5 } };
+
 /**
- * The whole "database" of the app. Everything lives in the browser (localStorage);
- * there is no server.
+ * Everything the signed-in user may see, loaded from zeroproxy-backend.
+ * Changes are sent to the API, then the data is reloaded so all pages stay in sync.
  */
 @Injectable({ providedIn: 'root' })
 export class DataService {
-  private readonly db = signal<Db>(loadDb());
+  private readonly db = signal<Db>(EMPTY);
 
   readonly users = computed(() => this.db().users);
+  readonly classes = computed(() => this.db().classes);
   readonly records = computed(() => this.db().records);
   readonly notifications = computed(() => this.db().notifications);
   readonly logs = computed(() => this.db().logs);
   readonly settings = computed(() => this.db().settings);
   readonly students = computed(() => this.users().filter((u) => u.role === 'student'));
-  readonly enrolledStudents = computed(() => this.students().filter((s) => s.enrolled));
-  readonly storageOk = signal(true);
-
-  private readonly persist = effect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.db()));
-      this.storageOk.set(true);
-    } catch {
-      this.storageOk.set(false);
-    }
-  });
+  readonly teachers = computed(() => this.users().filter((u) => u.role === 'teacher'));
+  readonly parents = computed(() => this.users().filter((u) => u.role === 'parent'));
+  /** False when the last request could not reach the server. */
+  readonly online = signal(true);
 
   constructor() {
-    // Students who haven't scanned in by the late cutoff are marked absent automatically.
-    this.autoMarkAbsentToday();
-    setInterval(() => this.autoMarkAbsentToday(), 60_000);
+    // Pick up camera scans and changes made by other users within a few seconds.
+    setInterval(() => {
+      if (session.token) this.load().catch(() => undefined);
+    }, 5_000);
+  }
+
+  // ------------------------------------------------------------ loading
+
+  async load(): Promise<void> {
+    this.db.set(await this.request<Db>('GET', '/state'));
+  }
+
+  clear() {
+    this.db.set(EMPTY);
   }
 
   // ------------------------------------------------------------ queries
@@ -54,188 +69,212 @@ export class DataService {
     return this.users().find((u) => u.id === id);
   }
 
-  recordsOf(studentId: string): AttendanceRecord[] {
-    return this.records()
-      .filter((r) => r.studentId === studentId)
-      .sort((a, b) => b.date.localeCompare(a.date));
+  schoolClass(id: string | undefined): SchoolClass | undefined {
+    return this.classes().find((c) => c.id === id);
   }
 
-  recordOn(studentId: string, date: string): AttendanceRecord | undefined {
-    return this.records().find((r) => r.studentId === studentId && r.date === date);
+  /** The classes a student is in, earliest start first. */
+  classesOf(studentId: string): SchoolClass[] {
+    const ids = this.user(studentId)?.classIds ?? [];
+    return this.classes()
+      .filter((c) => ids.includes(c.id))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.name.localeCompare(b.name));
+  }
+
+  /** "Grade 10 – A, Computer Science", or "" when the student is in no class. */
+  classNamesOf(studentId: string): string {
+    return this.classesOf(studentId)
+      .map((c) => c.name)
+      .join(', ');
+  }
+
+  /** Students linked to a parent. */
+  childrenOf(parentId: string): User[] {
+    const ids = this.user(parentId)?.childIds ?? [];
+    return this.students().filter((s) => ids.includes(s.id));
+  }
+
+  /** Parents linked to a student (only known to the admin, who receives all users). */
+  parentsOf(studentId: string): User[] {
+    return this.parents().filter((p) => p.childIds?.includes(studentId));
+  }
+
+  studentsIn(classId: string): User[] {
+    return this.students().filter((s) => s.classIds?.includes(classId));
+  }
+
+  classesOfTeacher(teacherId: string): SchoolClass[] {
+    return this.classes().filter((c) => c.teacherIds.includes(teacherId));
+  }
+
+  /** A student's records, newest first; only one class's when `classId` is given. */
+  recordsOf(studentId: string, classId?: string): AttendanceRecord[] {
+    return this.records()
+      .filter((r) => r.studentId === studentId && (!classId || r.classId === classId))
+      .sort((a, b) => b.date.localeCompare(a.date) || this.startOf(a.classId).localeCompare(this.startOf(b.classId)));
+  }
+
+  recordOn(studentId: string, classId: string, date: string): AttendanceRecord | undefined {
+    return this.records().find((r) => r.studentId === studentId && r.classId === classId && r.date === date);
   }
 
   notificationsOf(userId: string) {
     return this.notifications().filter((n) => n.userId === userId);
   }
 
-  /** Status a student arriving at `when` would get. */
-  statusAt(when: Date): Exclude<Status, 'absent'> {
-    return this.statusForTime(clock(when));
-  }
-
-  /** Status for an arrival time given as HH:mm. */
-  statusForTime(time: string): Exclude<Status, 'absent'> {
-    const { startTime, lateAfterMinutes } = this.settings();
-    return toMinutes(time) > toMinutes(startTime) + lateAfterMinutes ? 'late' : 'present';
-  }
-
-  // ------------------------------------------------------------ attendance
-
   /**
-   * Called after the camera recognises a student. Returns today's record.
-   * A scan replaces an automatic absence (the student arrived after the cutoff).
+   * The ID the next new account of this role will get (same rule as the server): the lowest free number
+   * from 1 for the role, so IDs of deleted accounts are reused. Students 1…, parents p1…,
+   * teachers t1…, admins a1….
    */
-  markByFace(studentId: string): AttendanceRecord {
-    const date = dateKey();
-    const existing = this.recordOn(studentId, date);
-    if (existing && existing.method !== 'auto') return existing;
-
-    const now = new Date();
-    const record: AttendanceRecord = {
-      id: uid(),
-      studentId,
-      date,
-      status: this.statusAt(now),
-      time: clock(now),
-      method: 'face',
-    };
-
-    this.change((db) => {
-      db.records = db.records.filter((r) => !(r.studentId === studentId && r.date === date));
-      db.records.push(record);
-      addLog(db, 'info', `${this.user(studentId)?.name} recognised by camera, marked ${record.status}`);
-      if (record.status === 'late') alertFamily(db, studentId, 'late', date, record.time);
-    });
-    return record;
+  nextLoginId(role: Role): string {
+    const prefix = ID_PREFIX[role];
+    const used = new Set(
+      this.users()
+        .filter((u) => u.role === role && new RegExp(`^${prefix}\\d+$`).test(u.loginId))
+        .map((u) => Number(u.loginId.slice(prefix.length))),
+    );
+    let n = ID_START[role];
+    while (used.has(n)) n++;
+    return `${prefix}${n}`;
   }
 
-  /** After today's late cutoff, marks every unmarked student absent (weekdays only). */
-  autoMarkAbsentToday() {
-    const now = new Date();
-    if (now.getDay() === 0 || now.getDay() === 6) return;
-    if (this.statusAt(now) === 'late') this.markUnmarkedAbsent(dateKey(now));
-  }
-
-  /** Teacher edit. `null` clears the record for that day. */
-  setStatus(studentId: string, date: string, status: Status | null) {
-    const previous = this.recordOn(studentId, date);
-    if (previous?.status === status || (!previous && status === null)) return;
-
-    this.change((db) => {
-      db.records = db.records.filter((r) => !(r.studentId === studentId && r.date === date));
-      const name = this.user(studentId)?.name;
-
-      if (status === null) {
-        addLog(db, 'info', `Teacher cleared attendance of ${name} on ${date}`);
-        return;
-      }
-
-      const time = status === 'absent' ? undefined : (previous?.time ?? clock());
-      db.records.push({ id: uid(), studentId, date, status, time, method: 'manual' });
-      addLog(db, 'info', `Teacher set ${name} to ${status} on ${date}`);
-
-      if (status !== 'present') alertFamily(db, studentId, status, date, time);
-      if (status === 'absent') checkAbsenceLimit(db, studentId);
-    });
+  private startOf(classId: string): string {
+    return this.schoolClass(classId)?.startTime ?? '';
   }
 
   /**
-   * Teacher enters the time a student arrived. Present or late is worked out from
-   * the class start time. Returns the resulting status.
+   * Which class a camera scan at `time` today counts for (same rule as the server): the student's
+   * earliest class that has not ended and that they are not marked for yet.
    */
-  setArrivalTime(studentId: string, date: string, time: string): Status {
-    const previous = this.recordOn(studentId, date);
-    const status = this.statusForTime(time);
-    if (previous?.time === time && previous.status === status) return status;
-
-    this.change((db) => {
-      db.records = db.records.filter((r) => !(r.studentId === studentId && r.date === date));
-      db.records.push({ id: uid(), studentId, date, status, time, method: 'manual' });
-      addLog(db, 'info', `Teacher set arrival of ${this.user(studentId)?.name} to ${time} on ${date} (${status})`);
-      if (status === 'late' && previous?.status !== 'late') alertFamily(db, studentId, 'late', date, time);
-    });
-    return status;
+  classForArrival(studentId: string, date: string, time: string): SchoolClass | undefined {
+    const marked = this.records().filter((r) => r.studentId === studentId && r.date === date && r.method !== 'auto');
+    return this.classesOf(studentId).find(
+      (c) => toMinutes(time) < toMinutes(c.endTime) && !marked.some((r) => r.classId === c.id),
+    );
   }
 
-  /** Marks every enrolled student with no record on `date` as absent. Returns how many. */
-  markUnmarkedAbsent(date: string): number {
-    const missing = this.enrolledStudents().filter((s) => !this.recordOn(s.id, date));
-    if (missing.length === 0) return 0;
-
-    this.change((db) => {
-      for (const s of missing) {
-        db.records.push({ id: uid(), studentId: s.id, date, status: 'absent', method: 'auto' });
-        alertFamily(db, s.id, 'absent', date);
-        checkAbsenceLimit(db, s.id);
-      }
-      addLog(db, 'info', `Unmarked students on ${date} marked absent: ${missing.map((s) => s.name).join(', ')}`);
-    });
-    return missing.length;
+  /** HH:mm after which arrivals in this class count as late. */
+  lateCutoff(schoolClass: SchoolClass): string {
+    return addMinutes(schoolClass.startTime, schoolClass.lateAfterMinutes);
   }
 
-  setEnrolled(studentId: string, enrolled: boolean) {
-    this.change((db) => {
-      const student = db.users.find((u) => u.id === studentId);
-      if (!student) return;
-      student.enrolled = enrolled;
-      addLog(db, 'info', `${student.name} ${enrolled ? 'added to' : 'removed from'} the class sheet`);
-    });
+  /** Status for an arrival time (HH:mm) in the given class (same rule as the server). */
+  statusForTime(schoolClass: SchoolClass | undefined, time: string): Exclude<Status, 'absent'> {
+    if (!schoolClass) return 'present';
+    return toMinutes(time) > toMinutes(this.lateCutoff(schoolClass)) ? 'late' : 'present';
   }
 
-  // ------------------------------------------------------------ accounts
+  // ------------------------------------------------------------ changes
+  // Each returns an error message, or null on success.
 
-  /** Returns an error message, or null on success. */
-  createUser(input: NewUser): string | null {
-    const username = input.username.trim().toLowerCase();
-    if (this.users().some((u) => u.username === username)) return `Username "${username}" is already taken.`;
+  /**
+   * Admin test: sends a scan exactly like the camera machine ({ id, time }).
+   * Returns the server's reply, or throws with its error message.
+   */
+  async testScan(id: string, time: string): Promise<ScanReply> {
+    const reply = await this.request<ScanReply>('POST', '/scans', { id, time });
+    await this.load();
+    return reply;
+  }
 
-    this.change((db) => {
-      db.users.push({ ...input, username, id: uid(), enrolled: input.role === 'student' ? true : undefined });
-      addLog(db, 'info', `Account created: ${input.name} (${input.role})`);
-    });
-    return null;
+  /**
+   * Teacher submits a class's attendance sheet for one day. Each entry is a status, or an
+   * arrival time (present or late is worked out from the class times). Saved all together.
+   */
+  submitAttendance(classId: string, date: string, entries: SheetEntry[]) {
+    return this.mutate('PUT', `/classes/${classId}/attendance/${date}`, { entries });
+  }
+
+  markUnmarkedAbsent(classId: string, date: string) {
+    return this.mutate('POST', `/classes/${classId}/mark-absent`, { date });
+  }
+
+  createClass(input: NewClass) {
+    return this.mutate('POST', '/classes', input);
+  }
+
+  updateClass(classId: string, changes: Partial<NewClass>) {
+    return this.mutate('PATCH', `/classes/${classId}`, changes);
+  }
+
+  deleteClass(classId: string) {
+    return this.mutate('DELETE', `/classes/${classId}`);
+  }
+
+  setTeacherInClass(classId: string, teacherId: string, inClass: boolean) {
+    return this.mutate(inClass ? 'PUT' : 'DELETE', `/classes/${classId}/teachers/${teacherId}`);
+  }
+
+  /** Adds a student to a class, or removes them. A student can be in several classes. */
+  setStudentInClass(classId: string, studentId: string, inClass: boolean) {
+    return this.mutate(inClass ? 'PUT' : 'DELETE', `/classes/${classId}/students/${studentId}`);
+  }
+
+  /** Links a parent to a student, or removes that link. A parent can have several children and vice versa. */
+  setParentChild(parentId: string, studentId: string, linked: boolean) {
+    return this.mutate(linked ? 'PUT' : 'DELETE', `/users/${parentId}/children/${studentId}`);
+  }
+
+  /** Creates an account; returns the new account (with its ID) or an error message. */
+  async createUser(input: NewUser): Promise<{ error?: string; user?: User }> {
+    try {
+      const user = await this.request<User>('POST', '/users', input);
+      await this.load();
+      return { user };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Something went wrong.' };
+    }
   }
 
   deleteUser(id: string) {
-    this.change((db) => {
-      const user = db.users.find((u) => u.id === id);
-      if (!user) return;
-      db.users = db.users.filter((u) => u.id !== id);
-      db.records = db.records.filter((r) => r.studentId !== id);
-      db.notifications = db.notifications.filter((n) => n.userId !== id);
-      db.users.forEach((u) => {
-        if (u.childId === id) delete u.childId;
-      });
-      addLog(db, 'warning', `Account deleted: ${user.name} (${user.role})`);
-    });
+    return this.mutate('DELETE', `/users/${id}`);
   }
-
-  // ------------------------------------------------------------ misc
 
   markAllRead(userId: string) {
-    this.change((db) => db.notifications.forEach((n) => n.userId === userId && (n.read = true)));
-  }
-
-  updateSettings(settings: Settings) {
-    this.change((db) => {
-      db.settings = settings;
-      addLog(db, 'info', `Settings updated: class starts ${settings.startTime}, late after ${settings.lateAfterMinutes} min, max ${settings.maxAbsences} absences`);
-    });
-  }
-
-  log(level: LogLevel, message: string) {
-    this.change((db) => addLog(db, level, message));
+    // Update the screen straight away; the server catches up.
+    this.db.update((db) => ({
+      ...db,
+      notifications: db.notifications.map((n) => (n.userId === userId ? { ...n, read: true } : n)),
+    }));
+    return this.mutate('POST', '/notifications/read-all');
   }
 
   resetDemoData() {
-    this.db.set(createSeedDb());
+    return this.mutate('POST', '/admin/reset');
   }
 
-  private change(fn: (draft: Db) => void) {
-    this.db.update((current) => {
-      const draft = structuredClone(current);
-      fn(draft);
-      return draft;
-    });
+  /** Reports a warning or error to the admin's log. Never throws. */
+  log(level: LogLevel, message: string) {
+    if (!session.token) return;
+    api('POST', '/logs', { level, message }).catch(() => undefined);
+  }
+
+  // ------------------------------------------------------------ helpers
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    try {
+      const result = await api<T>(method, path, body);
+      this.online.set(true);
+      return result;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 0) this.online.set(false);
+      if (err instanceof ApiError && err.status === 401) {
+        // Session expired or account deleted: drop everything so the app returns to the login page.
+        session.clear();
+        this.clear();
+      }
+      throw err;
+    }
+  }
+
+  private async mutate(method: string, path: string, body?: unknown): Promise<string | null> {
+    try {
+      await this.request(method, path, body);
+      await this.load();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Something went wrong.';
+    }
   }
 }

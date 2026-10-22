@@ -1,0 +1,11 @@
+:host { display: block; }
+.none { margin: 0; }
+.today-list { list-style: none; margin: 0; padding: 0; }
+.today-list li {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1rem;
+  padding: 0.65rem 0; border-bottom: 1px solid var(--border);
+}
+.today-list li:last-child { border-bottom: 0; }
+.class-name { display: grid; font-weight: 500; }
+.class-name small { font-weight: 400; }
+.today-status { display: flex; align-items: center; gap: 0.5rem; }

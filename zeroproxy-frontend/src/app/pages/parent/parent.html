@@ -5,33 +5,37 @@
   </header>
 
   @if (child(); as kid) {
-    <div class="two-col">
-      <section class="card">
-        <h2>{{ kid.name }}</h2>
-        <p class="today">
-          Today: <app-status-badge [status]="todayRecord()?.status" />
-          @if (todayRecord()?.time) {
-            <span class="muted">arrived {{ todayRecord()?.time }}</span>
-          }
-        </p>
-        <p class="muted">
-          Absence and late alerts are shown here and also sent to
-          <strong>{{ me.phone || me.email || 'your contact details' }}</strong>.
-        </p>
-      </section>
-
-      <section class="card">
-        <app-notification-list [items]="notifications()" (markAllRead)="data.markAllRead(me.id)" />
-      </section>
-    </div>
-
-    <section class="section">
-      <h2>{{ kid.name }}'s attendance history</h2>
-      <app-attendance-summary [records]="history()" [maxAbsences]="data.settings().maxAbsences" />
-      <div class="card flush">
-        <app-attendance-table [records]="history()" />
-      </div>
+    <section class="card">
+      <h2>{{ children().length > 1 ? 'Your children' : 'Your child' }}</h2>
+      <ul class="children">
+        @for (c of children(); track c.child.id) {
+          <li>
+            <button
+              type="button"
+              class="child"
+              [class.selected]="c.child.id === kid.id"
+              [attr.aria-pressed]="c.child.id === kid.id"
+              (click)="pick(c.child.id)"
+            >
+              <span class="child-name">{{ c.child.name }}</span>
+              <span class="child-classes">
+                @for (k of c.classes; track k.schoolClass.id) {
+                  <span class="child-class">
+                    <span class="muted">{{ k.schoolClass.name }}</span>
+                    <app-status-badge [status]="k.today?.status" />
+                  </span>
+                } @empty {
+                  <span class="muted">No class</span>
+                }
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
     </section>
+
+    <h2 class="section">{{ kid.name }}'s attendance</h2>
+    <app-student-attendance [studentId]="kid.id" />
   } @else {
     <div class="card">
       <p>Your account is not linked to a student yet. Please contact the school administration.</p>
