@@ -5,17 +5,26 @@
 } @else {
   <section class="card">
     <h2>Today</h2>
+    @if (dayOffToday(); as off) {
+      <p class="day-off"><strong>Day off{{ off.reason ? ': ' + off.reason : '' }}.</strong> No class today.</p>
+    }
     <ul class="today-list">
       @for (c of classes(); track c.schoolClass.id) {
         <li>
           <span class="class-name">
             {{ c.schoolClass.name }}
-            <small class="muted">{{ c.schoolClass.startTime }}–{{ c.schoolClass.endTime }} · late after {{ c.lateAfter }}</small>
+            <small class="muted">
+              {{ c.days }} · {{ c.schoolClass.startTime }}–{{ c.schoolClass.endTime }} · late after {{ c.lateAfter }}
+            </small>
           </span>
           <span class="today-status">
-            <app-status-badge [status]="c.today?.status" />
-            @if (c.today?.time) {
-              <span class="muted">arrived {{ c.today?.time }}</span>
+            @if (c.meetsToday) {
+              <app-status-badge [status]="c.today?.status" />
+              @if (c.today?.time) {
+                <span class="muted">arrived {{ c.today?.time }}</span>
+              }
+            } @else {
+              <span class="muted">{{ dayOffToday() ? 'Day off' : c.cancelledToday ? 'Cancelled today' : 'No class today' }}</span>
             }
           </span>
         </li>

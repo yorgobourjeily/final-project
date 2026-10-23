@@ -1,7 +1,7 @@
 import { computed, Injectable, signal } from '@angular/core';
 import { api, ApiError, session } from './api';
-import { AttendanceRecord, Db, LogLevel, NewClass, NewUser, Role, SchoolClass, Status, User } from './models';
-import { addMinutes, toMinutes } from './utils';
+import { AttendanceRecord, ClassCancellation, DayOff, Db, LogLevel, NewClass, NewUser, Role, SchoolClass, Status, User } from './models';
+import { addMinutes, toMinutes, weekdayOf } from './utils';
 
 /** What the server answers to a camera scan. */
 export interface ScanReply {
@@ -24,7 +24,7 @@ export type SheetEntry = { studentId: string } & ({ status: Status } | { time: s
 const ID_PREFIX: Record<Role, string> = { student: '', teacher: 't', parent: 'p', admin: 'a' };
 const ID_START: Record<Role, number> = { student: 1, parent: 1, teacher: 1, admin: 1 };
 
-const EMPTY: Db = { users: [], classes: [], records: [], notifications: [], logs: [], settings: { maxAbsences: 5 } };
+const EMPTY: Db = { users: [], classes: [], records: [], notifications: [], logs: [], settings: { maxAbsences: 5 }, daysOff: [], cancellations: [] };
 
 /**
  * Everything the signed-in user may see, loaded from zeroproxy-backend.
@@ -40,6 +40,8 @@ export class DataService {
   readonly notifications = computed(() => this.db().notifications);
   readonly logs = computed(() => this.db().logs);
   readonly settings = computed(() => this.db().settings);
+  readonly daysOff = computed(() => this.db().daysOff ?? []);
+  readonly cancellations = computed(() => this.db().cancellations ?? []);
   readonly students = computed(() => this.users().filter((u) => u.role === 'student'));
   readonly teachers = computed(() => this.users().filter((u) => u.role === 'teacher'));
   readonly parents = computed(() => this.users().filter((u) => u.role === 'parent'));
@@ -150,8 +152,28 @@ export class DataService {
   classForArrival(studentId: string, date: string, time: string): SchoolClass | undefined {
     const marked = this.records().filter((r) => r.studentId === studentId && r.date === date && r.method !== 'auto');
     return this.classesOf(studentId).find(
-      (c) => toMinutes(time) < toMinutes(c.endTime) && !marked.some((r) => r.classId === c.id),
+      (c) => this.hasClassOn(c, date) && toMinutes(time) < toMinutes(c.endTime) && !marked.some((r) => r.classId === c.id),
     );
+  }
+
+  /** Whether the class's weekly schedule includes that date's weekday (YYYY-MM-DD). */
+  meetsOn(schoolClass: SchoolClass, date: string): boolean {
+    return schoolClass.days.includes(weekdayOf(date));
+  }
+
+  /** The school-wide day off on that date, if any. */
+  dayOff(date: string): DayOff | undefined {
+    return this.daysOff().find((d) => d.date === date);
+  }
+
+  /** The cancellation of that class on that date, if it is cancelled. */
+  cancellation(classId: string, date: string): ClassCancellation | undefined {
+    return this.cancellations().find((c) => c.classId === classId && c.date === date);
+  }
+
+  /** Whether the class actually takes place that date: on its schedule, not a day off and not cancelled. */
+  hasClassOn(schoolClass: SchoolClass, date: string): boolean {
+    return this.meetsOn(schoolClass, date) && !this.dayOff(date) && !this.cancellation(schoolClass.id, date);
   }
 
   /** HH:mm after which arrivals in this class count as late. */
@@ -238,6 +260,33 @@ export class DataService {
       notifications: db.notifications.map((n) => (n.userId === userId ? { ...n, read: true } : n)),
     }));
     return this.mutate('POST', '/notifications/read-all');
+  }
+
+  /** Deletes all of a user's notifications. */
+  clearNotifications(userId: string) {
+    this.db.update((db) => ({ ...db, notifications: db.notifications.filter((n) => n.userId !== userId) }));
+    return this.mutate('DELETE', '/notifications');
+  }
+
+  /** Deletes one notification. */
+  deleteNotification(id: string) {
+    this.db.update((db) => ({ ...db, notifications: db.notifications.filter((n) => n.id !== id) }));
+    return this.mutate('DELETE', `/notifications/${id}`);
+  }
+
+  /** Marks a date as a school-wide day off (or changes its reason). */
+  setDayOff(date: string, reason: string) {
+    return this.mutate('PUT', `/days-off/${date}`, { reason });
+  }
+
+  /** Cancels one class on one date (no attendance taken), or restores it. */
+  setClassCancelled(classId: string, date: string, cancelled: boolean) {
+    return this.mutate(cancelled ? 'PUT' : 'DELETE', `/classes/${classId}/cancellations/${date}`, cancelled ? {} : undefined);
+  }
+
+  /** Makes a day off a normal school day again. */
+  removeDayOff(date: string) {
+    return this.mutate('DELETE', `/days-off/${date}`);
   }
 
   resetDemoData() {

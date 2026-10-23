@@ -22,7 +22,11 @@
                 @for (k of c.classes; track k.schoolClass.id) {
                   <span class="child-class">
                     <span class="muted">{{ k.schoolClass.name }}</span>
-                    <app-status-badge [status]="k.today?.status" />
+                    @if (k.meetsToday) {
+                      <app-status-badge [status]="k.today?.status" />
+                    } @else {
+                      <span class="muted">{{ k.cancelledToday ? 'cancelled today' : 'no class today' }}</span>
+                    }
                   </span>
                 } @empty {
                   <span class="muted">No class</span>

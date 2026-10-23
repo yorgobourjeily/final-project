@@ -24,6 +24,8 @@ export class Parent {
       child,
       classes: this.data.classesOf(child.id).map((schoolClass) => ({
         schoolClass,
+        meetsToday: this.data.hasClassOn(schoolClass, today),
+        cancelledToday: !!this.data.cancellation(schoolClass.id, today),
         today: this.data.recordOn(child.id, schoolClass.id, today),
       })),
     }));

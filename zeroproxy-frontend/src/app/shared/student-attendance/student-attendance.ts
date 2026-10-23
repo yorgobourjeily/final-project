@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { DataService } from '../../data.service';
-import { dateKey } from '../../utils';
+import { dateKey, daysText } from '../../utils';
 import { AttendanceTable } from '../attendance-table/attendance-table';
 import { StatusBadge } from '../status-badge/status-badge';
 
@@ -26,6 +26,9 @@ export class StudentAttendance {
       const absent = count('absent');
       return {
         schoolClass,
+        days: daysText(schoolClass.days),
+        meetsToday: this.data.hasClassOn(schoolClass, today),
+        cancelledToday: !!this.data.cancellation(schoolClass.id, today),
         lateAfter: this.data.lateCutoff(schoolClass),
         today: this.data.recordOn(this.studentId(), schoolClass.id, today),
         present: count('present'),
@@ -37,4 +40,6 @@ export class StudentAttendance {
   });
 
   protected readonly history = computed(() => this.data.recordsOf(this.studentId()));
+  /** Today's school-wide day off, if any. */
+  protected readonly dayOffToday = computed(() => this.data.dayOff(dateKey()));
 }

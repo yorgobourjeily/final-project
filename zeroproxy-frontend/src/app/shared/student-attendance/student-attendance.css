@@ -1,5 +1,6 @@
 :host { display: block; }
 .none { margin: 0; }
+.day-off { margin: 0 0 0.5rem; padding: 0.6rem 0.8rem; border-radius: 8px; background: var(--bad-soft); color: var(--bad); }
 .today-list { list-style: none; margin: 0; padding: 0; }
 .today-list li {
   display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1rem;

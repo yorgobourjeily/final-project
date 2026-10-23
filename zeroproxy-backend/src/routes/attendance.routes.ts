@@ -5,10 +5,15 @@ import {
   addLog,
   alertFamily,
   checkAbsenceLimit,
+  dayName,
+  dayOff,
+  dayOffText,
   getClass,
   getUser,
+  isCancelled,
   isInClass,
   markUnmarkedAbsent,
+  meetsOn,
   saveRecord,
   statusForTime,
 } from '../logic';
@@ -83,6 +88,12 @@ attendanceRoutes.put('/classes/:id/attendance/:date', requireRole('teacher', 'ad
   const schoolClass = await getClass(pool, classId);
   if (!schoolClass) throw new HttpError(404, 'Class not found.');
   await assertTeaches(me(req), classId);
+  if (!meetsOn(schoolClass, date)) throw new HttpError(400, `${schoolClass.name} doesn't meet on ${dayName(date)}.`);
+  const off = await dayOff(pool, date);
+  if (off) throw new HttpError(400, `${date} is ${dayOffText(off)}: no class, so no attendance is taken.`);
+  if (await isCancelled(pool, classId, date)) {
+    throw new HttpError(400, `${schoolClass.name} is cancelled on ${date}, so no attendance is taken.`);
+  }
 
   const entries: (Entry & { studentId?: unknown })[] = req.body?.entries;
   if (!Array.isArray(entries) || entries.length === 0) throw new HttpError(400, 'There is nothing to submit.');

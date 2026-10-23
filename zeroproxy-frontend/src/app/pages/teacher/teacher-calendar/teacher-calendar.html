@@ -1,0 +1,78 @@
+<div class="layout">
+  <section class="card">
+    <div class="cal-toolbar">
+      <button type="button" class="btn small nav" (click)="step(-1)" aria-label="Previous month">‹</button>
+      <select (change)="onMonth($event)" aria-label="Month">
+        @for (m of months; track $index) {
+          <option [value]="$index" [selected]="$index === month()">{{ m }}</option>
+        }
+      </select>
+      <select (change)="onYear($event)" aria-label="Year">
+        @for (y of years(); track y) {
+          <option [value]="y" [selected]="y === year()">{{ y }}</option>
+        }
+      </select>
+      <button type="button" class="btn small nav" (click)="step(1)" aria-label="Next month">›</button>
+      <button type="button" class="btn small" (click)="goToday()">Today</button>
+    </div>
+
+    <div class="grid" role="grid" [attr.aria-label]="months[month()] + ' ' + year()">
+      @for (h of weekdayHeaders; track h) {
+        <div class="head" role="columnheader">{{ h }}</div>
+      }
+      @for (week of weeks(); track $index) {
+        @for (cell of week; track $index) {
+          @if (cell) {
+            <button
+              type="button"
+              class="cell"
+              role="gridcell"
+              [class.has-class]="cell.hasClass"
+              [class.no-class]="!cell.hasClass"
+              [class.today]="cell.isToday"
+              [class.selected]="cell.date === selected()"
+              [attr.aria-selected]="cell.date === selected()"
+              (click)="selected.set(cell.date)"
+            >
+              <span class="num">{{ cell.day }}</span>
+              @if (cell.off) {
+                <span class="off-label">{{ cell.off.reason || 'Day off' }}</span>
+              }
+            </button>
+          } @else {
+            <div class="cell empty" aria-hidden="true"></div>
+          }
+        }
+      }
+    </div>
+    <p class="legend muted">
+      <span class="swatch has-class"></span> Class
+      <span class="swatch no-class"></span> No class
+      <span class="swatch today"></span> Today
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>{{ selected() | date: 'EEEE d MMMM y' }}</h2>
+    @if (selectedOff(); as off) {
+      <p><span class="badge off-badge">Day off</span> {{ off.reason }}</p>
+      <p class="muted">No class on this day.</p>
+    } @else {
+      <ul class="day-classes">
+        @for (l of selectedLessons(); track l.schoolClass.id) {
+          <li [class.cancelled]="l.cancelled">
+            <div class="class-info">
+              <strong>{{ l.schoolClass.name }}</strong>
+              <span class="muted">{{ l.schoolClass.startTime }}–{{ l.schoolClass.endTime }} · {{ l.students }} student(s)</span>
+            </div>
+            @if (l.cancelled) {
+              <span class="badge cancelled-badge">Cancelled</span>
+            }
+          </li>
+        } @empty {
+          <li class="muted">You have no class on this day.</li>
+        }
+      </ul>
+    }
+  </section>
+</div>

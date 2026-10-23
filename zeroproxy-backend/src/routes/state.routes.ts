@@ -100,6 +100,15 @@ stateRoutes.get('/state', async (req, res) => {
     [auth.id],
   );
   const settings = await one<{ max_absences: number }>(pool, 'SELECT max_absences FROM settings WHERE id = 1');
+  const daysOff = await rows<{ date: string; reason: string | null }>(pool, 'SELECT * FROM days_off ORDER BY date');
+  // Cancellations of the classes this user can see.
+  const cancellations = classes.length
+    ? await rows<{ class_id: string; date: string; reason: string | null }>(
+        pool,
+        'SELECT * FROM class_cancellations WHERE class_id = ANY($1) ORDER BY date',
+        [classes.map((c) => c.id)],
+      )
+    : [];
 
   // Children of the parents in this response.
   const parentIds = users.filter((u) => u.role === 'parent').map((u) => u.id);
@@ -136,5 +145,7 @@ stateRoutes.get('/state', async (req, res) => {
     notifications: notifications.map(toNotification),
     logs: logs.map(toLog),
     settings: { maxAbsences: settings?.max_absences ?? 5 },
+    daysOff: daysOff.map((d) => ({ date: d.date, reason: d.reason ?? undefined })),
+    cancellations: cancellations.map((c) => ({ classId: c.class_id, date: c.date, reason: c.reason ?? undefined })),
   });
 });

@@ -14,6 +14,18 @@ miscRoutes.post('/notifications/read-all', async (req, res) => {
   res.status(204).end();
 });
 
+/** DELETE /api/notifications  clears all of the signed-in user's notifications. */
+miscRoutes.delete('/notifications', async (req, res) => {
+  await pool.query('DELETE FROM notifications WHERE user_id = $1', [me(req).id]);
+  res.status(204).end();
+});
+
+/** DELETE /api/notifications/:id  removes one of the signed-in user's notifications. */
+miscRoutes.delete('/notifications/:id', async (req, res) => {
+  await pool.query('DELETE FROM notifications WHERE id = $1 AND user_id = $2', [req.params.id, me(req).id]);
+  res.status(204).end();
+});
+
 /** POST /api/logs  { level, message }  lets the frontend report errors and warnings (e.g. camera problems). */
 miscRoutes.post('/logs', async (req, res) => {
   const { level, message } = req.body ?? {};

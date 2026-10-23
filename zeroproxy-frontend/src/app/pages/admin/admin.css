@@ -23,8 +23,18 @@
 .class-form { display: grid; gap: 0.9rem 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); align-items: end; }
 .class-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
 .class-name input { font-size: 1.15rem; font-weight: 600; color: var(--navy); }
+.class-title { margin: 0; font-size: 1.15rem; }
+.head-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.head-actions .btn + .btn { margin-left: 0; }
 .rules { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; padding: 0.75rem 1rem; background: var(--bg); border-radius: 8px; margin-bottom: 1.25rem; }
 .minutes { width: 5rem; }
+.days { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.day {
+  font: inherit; font-size: 0.82rem; font-weight: 500; padding: 0.35rem 0.6rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.day.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+.new-days { display: grid; gap: 0.3rem; grid-column: 1 / -1; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .users-toolbar { justify-content: space-between; }
 .user-search { flex: 1 1 16rem; max-width: 22rem; }
@@ -43,3 +53,29 @@
 .level[data-level='warning'] { background: var(--warn-soft); color: var(--warn); }
 .level[data-level='error'] { background: var(--bad-soft); color: var(--bad); }
 .btn + .btn { margin-left: 0.5rem; }
+/* User accounts: the table scrolls inside the card, headings stay visible. */
+.accounts-scroll { max-height: 520px; overflow-y: auto; }
+.accounts-scroll thead th { position: sticky; top: 0; z-index: 1; }
+/* Classes tab: search above the class cards, and the cards scroll in their own area. */
+.classes-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
+.classes-search { flex: 1 1 16rem; max-width: 22rem; }
+.classes-scroll {
+  display: grid; gap: 1.25rem; max-height: 600px; overflow-y: scroll; padding: 0.5rem;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);
+}
+/* User accounts: read-only details under an account. */
+tr.viewing td { background: var(--navy-soft); }
+.details-row td { background: var(--bg); padding: 0.75rem 1.25rem 1rem; }
+.details-row h4 { margin: 0.5rem 0 0.35rem; font-size: 0.85rem; color: var(--navy); text-transform: uppercase; letter-spacing: 0.04em; }
+.details-row h4:first-child { margin-top: 0; }
+.details-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; font-size: 0.9rem; }
+.details-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; }
+.actions-cell .btn { margin-left: 0.35rem; }
+/* Classes tab: the class being edited opens in a window on top of the page. */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 1rem;
+  background: rgb(13 27 46 / 0.55);
+}
+.modal { width: min(900px, 100%); max-height: calc(100vh - 2rem); overflow-y: auto; box-shadow: 0 20px 50px rgb(0 0 0 / 0.3); }
+.modal-list { max-height: 240px; overflow-y: auto; padding-right: 0.5rem; }
+.modal .form-error, .modal .form-success { margin: 0 0 1rem; }

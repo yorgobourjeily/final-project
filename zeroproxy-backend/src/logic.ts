@@ -94,11 +94,35 @@ export async function classForArrival(db: Queryable, studentId: string, date: st
     studentId,
     date,
   ]);
-  const notEnded = classes.filter((c) => toMinutes(time) < toMinutes(c.end_time));
+  // Only classes that meet on that day, are not cancelled, and have not ended yet.
+  const cancelled = await rows<{ class_id: string }>(db, 'SELECT class_id FROM class_cancellations WHERE date = $1', [date]);
+  const notEnded = classes.filter(
+    (c) => meetsOn(c, date) && !cancelled.some((x) => x.class_id === c.id) && toMinutes(time) < toMinutes(c.end_time),
+  );
   const target = notEnded.find((c) => !marked.some((r) => r.class_id === c.id));
   const alreadyMarked = target ? undefined : marked.find((r) => notEnded.some((c) => c.id === r.class_id));
   return { classes, target, alreadyMarked };
 }
+
+/** Day of the week of a YYYY-MM-DD date: 0 = Sunday … 6 = Saturday. */
+export const weekdayOf = (date: string) => new Date(`${date}T12:00:00`).getDay();
+
+/** Whether the class's weekly schedule includes that date's weekday (days off are checked separately). */
+export const meetsOn = (c: ClassRow, date: string) => c.days.includes(weekdayOf(date));
+
+/** The school-wide day off on that date, if any. */
+export const dayOff = (db: Queryable, date: string) =>
+  one<{ date: string; reason: string | null }>(db, 'SELECT * FROM days_off WHERE date = $1', [date]);
+
+/** Whether that class is cancelled on that date. */
+export const isCancelled = async (db: Queryable, classId: string, date: string) =>
+  !!(await one(db, 'SELECT 1 FROM class_cancellations WHERE class_id = $1 AND date = $2', [classId, date]));
+
+/** "Independence Day" or "a day off", for messages. */
+export const dayOffText = (d: { reason: string | null }) => d.reason || 'a day off';
+
+const DAY_NAMES = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+export const dayName = (date: string) => DAY_NAMES[weekdayOf(date)];
 
 /** HH:mm after which arrivals in this class count as late. */
 export const lateCutoff = (c: ClassRow) => addMinutes(c.start_time, c.late_after_minutes);
@@ -180,6 +204,10 @@ export async function saveRecord(
 
 /** Marks every student of the class with no record for that class on `date` as absent. Returns how many. */
 export async function markUnmarkedAbsent(db: Queryable, classId: string, date: string): Promise<number> {
+  const schoolClass = await getClass(db, classId);
+  // No class that day (not on its schedule, or a day off), so nobody is absent.
+  if (!schoolClass || !meetsOn(schoolClass, date) || (await dayOff(db, date)) || (await isCancelled(db, classId, date))) return 0;
+
   const missing = await rows<UserRow>(
     db,
     `SELECT u.* FROM users u
@@ -195,18 +223,18 @@ export async function markUnmarkedAbsent(db: Queryable, classId: string, date: s
     await alertFamily(db, s.id, classId, 'absent', date);
     await checkAbsenceLimit(db, s.id, classId);
   }
-  const schoolClass = await getClass(db, classId);
-  await addLog(db, 'info', `${schoolClass?.name}: unmarked students on ${date} marked absent: ${missing.map((s) => s.name).join(', ')}`);
+  await addLog(db, 'info', `${schoolClass.name}: unmarked students on ${date} marked absent: ${missing.map((s) => s.name).join(', ')}`);
   return missing.length;
 }
 
-/** For every class whose late cutoff has passed today, marks unmarked students absent (weekdays only). */
+/** For every class that meets today and whose late cutoff has passed, marks unmarked students absent. */
 export async function autoMarkAbsentToday() {
   const now = new Date();
-  if (now.getDay() === 0 || now.getDay() === 6) return;
+  const today = dateKey(now);
+  if (await dayOff(pool, today)) return;
   const classes = await rows<ClassRow>(pool, 'SELECT * FROM classes');
   for (const c of classes) {
-    if (toMinutes(clock(now)) > toMinutes(lateCutoff(c))) {
+    if (meetsOn(c, today) && toMinutes(clock(now)) > toMinutes(lateCutoff(c))) {
       await transaction((client) => markUnmarkedAbsent(client, c.id, dateKey(now)));
     }
   }

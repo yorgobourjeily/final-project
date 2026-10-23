@@ -3,7 +3,7 @@ import { RequestHandler, Router } from 'express';
 import { requireAuth } from '../auth';
 import { config } from '../config';
 import { one, pool, transaction } from '../db';
-import { addLog, alertFamily, classForArrival, isLoginIdFor, lateCutoff, saveRecord, statusForTime } from '../logic';
+import { addLog, alertFamily, classForArrival, dayOff, dayOffText, isLoginIdFor, lateCutoff, saveRecord, statusForTime } from '../logic';
 import { AttendanceRow, ClassRow, UserRow } from '../types';
 import { clock, dateKey, HttpError, toMinutes } from '../utils';
 
@@ -97,6 +97,9 @@ scanRoutes.post('/scans', cameraOrAdmin, async (req, res) => {
 
   const date = dateKey(arrival);
   const time = clock(arrival);
+
+  const off = await dayOff(pool, date);
+  if (off) throw new HttpError(400, `No school on ${date} (${dayOffText(off)}). Attendance is not taken.`);
 
   // Which of the student's classes this arrival is for.
   const { classes, target, alreadyMarked } = await classForArrival(pool, student.id, date, time);

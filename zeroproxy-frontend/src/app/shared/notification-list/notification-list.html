@@ -5,9 +5,19 @@
       <span class="count">{{ unread() }} new</span>
     }
   </h2>
-  @if (unread() > 0) {
-    <button type="button" class="btn small" (click)="markAllRead.emit()">Mark all as read</button>
-  }
+  <span class="header-actions">
+    @if (unread() > 0) {
+      <button type="button" class="btn small" (click)="markAllRead.emit()">Mark all as read</button>
+    }
+    @if (items().length > 0) {
+      @if (confirmingClear()) {
+        <button type="button" class="btn small danger" (click)="confirmClear()">Confirm clear</button>
+        <button type="button" class="btn small" (click)="confirmingClear.set(false)">Back</button>
+      } @else {
+        <button type="button" class="btn small" (click)="confirmingClear.set(true)">Clear all</button>
+      }
+    }
+  </span>
 </div>
 
 @if (items().length === 0) {
@@ -17,7 +27,10 @@
     @for (n of items(); track n.id) {
       <li [class.unread]="!n.read" [attr.data-kind]="n.kind">
         <span class="message">{{ n.message }}</span>
-        <time class="muted">{{ n.createdAt | date: 'd MMM, HH:mm' }}</time>
+        <span class="meta">
+          <time class="muted">{{ n.createdAt | date: 'd MMM, HH:mm' }}</time>
+          <button type="button" class="remove" (click)="remove.emit(n.id)" aria-label="Clear this notification">×</button>
+        </span>
       </li>
     }
   </ul>

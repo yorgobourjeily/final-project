@@ -3,11 +3,13 @@ import { DatePipe } from '@angular/common';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../auth.service';
 import { DataService, ScanReply } from '../../data.service';
-import { Role, ROLE_LABELS, SchoolClass, User } from '../../models';
-import { clock, dateKey } from '../../utils';
+import { NewClass, Role, ROLE_LABELS, SchoolClass, User } from '../../models';
+import { clock, dateKey, daysText, WEEK_DAYS } from '../../utils';
+import { tabInUrl } from '../../tab-state';
 import { StudentSearch } from '../../shared/student-search/student-search';
+import { DaysOffCalendar } from './days-off-calendar/days-off-calendar';
 
-type Tab = 'users' | 'create' | 'classes' | 'parents' | 'scanner' | 'system';
+const TABS = ['users', 'create', 'classes', 'calendar', 'parents', 'scanner', 'system'] as const;
 
 /** Shown in the Camera scanner tab: what the camera machine must send. */
 const MACHINE_REQUEST = `POST http://<server>:3000/api/scans
@@ -18,7 +20,7 @@ X-Device-Key: <DEVICE_KEY from zeroproxy-backend/.env>
 
 @Component({
   selector: 'app-admin',
-  imports: [DatePipe, ReactiveFormsModule, StudentSearch],
+  imports: [DatePipe, ReactiveFormsModule, StudentSearch, DaysOffCalendar],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './admin.html',
   styleUrl: './admin.css',
@@ -30,8 +32,10 @@ export class Admin {
 
   protected readonly roles: Role[] = ['student', 'parent', 'teacher', 'admin'];
   protected readonly roleLabels = ROLE_LABELS;
+  protected readonly weekDays = WEEK_DAYS;
+  protected readonly daysText = daysText;
 
-  protected readonly tab = signal<Tab>('users');
+  protected readonly tab = tabInUrl(TABS, 'users');
   protected readonly filter = signal<Role | 'all'>('all');
   protected readonly pendingDelete = signal<string | null>(null);
   protected readonly pendingClassDelete = signal<string | null>(null);
@@ -100,6 +104,26 @@ export class Admin {
       });
   });
 
+  /** Classes tab: search by class name or teacher name. */
+  protected readonly classListSearch = signal('');
+  protected readonly visibleClasses = computed(() => {
+    const q = this.classListSearch().trim().toLowerCase();
+    const classes = this.data.classes();
+    if (!q) return classes;
+    return classes.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.teacherIds.some((id) => this.data.user(id)?.name.toLowerCase().includes(q)),
+    );
+  });
+
+  /** User accounts: the account whose read-only details are open. */
+  protected readonly viewingUserId = signal<string | null>(null);
+
+  protected toggleView(userId: string) {
+    this.viewingUserId.update((id) => (id === userId ? null : userId));
+  }
+
   protected readonly userSearch = signal('');
   /** Accounts matching the role filter and the search (name or ID). */
   protected readonly visibleUsers = computed(() => {
@@ -128,7 +152,6 @@ export class Admin {
     password: ['', [Validators.required, Validators.minLength(6)]],
     email: ['', Validators.email],
     phone: [''],
-    childId: [''],
     classId: [''],
   });
 
@@ -150,6 +173,13 @@ export class Admin {
     return c.teacherIds.map((id) => this.data.user(id)).filter((u): u is User => !!u);
   }
 
+  /** "Ms. Rana Haddad, Mr. Tony Rizk" for a class. */
+  protected teacherNames(c: SchoolClass): string {
+    return this.teachersOf(c)
+      .map((t) => t.name)
+      .join(', ');
+  }
+
   protected teachersNotIn(c: SchoolClass): User[] {
     return this.data.teachers().filter((t) => !c.teacherIds.includes(t.id));
   }
@@ -168,6 +198,7 @@ export class Admin {
   protected startCreate(role: Role) {
     this.form.reset();
     this.form.controls.role.setValue(role);
+    this.childSearch.set('');
     this.formError.set('');
     this.formSuccess.set('');
     this.tab.set('create');
@@ -186,8 +217,10 @@ export class Admin {
       return;
     }
     const v = this.form.getRawValue();
-    if (v.role === 'parent' && !v.childId) {
-      this.formError.set('Choose the child this parent account belongs to.');
+    // The child is the student whose ID is typed in (or picked) in the search box.
+    const child = this.data.students().find((s) => s.loginId === this.childSearch().trim().toLowerCase());
+    if (v.role === 'parent' && !child) {
+      this.formError.set("Type or pick the child's student ID.");
       return;
     }
 
@@ -197,7 +230,7 @@ export class Admin {
       role: v.role,
       email: v.email || undefined,
       phone: v.phone || undefined,
-      childIds: v.role === 'parent' ? [v.childId] : undefined,
+      childIds: v.role === 'parent' && child ? [child.id] : undefined,
       classIds: v.role === 'student' && v.classId ? [v.classId] : undefined,
     });
     if (error) {
@@ -207,7 +240,11 @@ export class Admin {
     this.formError.set('');
     this.formSuccess.set(`Account for ${v.name} created. They sign in with ID ${user?.loginId} and the password you chose.`);
     this.form.reset();
+    this.childSearch.set('');
   }
+
+  /** Create account: the child's student ID typed into the search box (parents only). */
+  protected readonly childSearch = signal('');
 
   // ------------------------------------------------------------ classes
 
@@ -217,12 +254,17 @@ export class Admin {
       this.classError.set('Give the class a name, a start and end time, the minutes before students count as late, and a maximum of at least 1 absence.');
       return;
     }
+    if (this.newClassDays().length === 0) {
+      this.classError.set('Choose at least one day of the week.');
+      return;
+    }
     const v = this.classForm.getRawValue();
     const error = await this.data.createClass({
       ...v,
       name: v.name.trim(),
       lateAfterMinutes: Math.round(v.lateAfterMinutes),
       maxAbsences: Math.round(v.maxAbsences),
+      days: this.newClassDays(),
     });
     if (error) {
       this.classError.set(error);
@@ -231,43 +273,79 @@ export class Admin {
     this.classError.set('');
     this.classMessage.set(`Class ${v.name.trim()} created. Now add its teachers and students below.`);
     this.classForm.reset();
+    this.newClassDays.set([1, 2, 3, 4, 5]);
   }
 
-  protected onClassName(c: SchoolClass, event: Event) {
-    const input = event.target as HTMLInputElement;
-    const name = input.value.trim();
-    if (!name || name === c.name) return;
-    this.applyClassChange(c, { name }, `Class renamed to ${name}.`, () => (input.value = c.name));
+  // ------------------------------------------------------------ editing a class
+  // A class card is read-only until Edit is clicked. Details are kept in a draft and saved together on Save.
+
+  protected readonly editingClassId = signal<string | null>(null);
+  protected readonly classDraft = signal<NewClass | null>(null);
+  protected readonly savingClass = signal(false);
+  /** The class open in the edit window. */
+  protected readonly editingClass = computed(() => this.data.schoolClass(this.editingClassId() ?? ''));
+
+  protected startEdit(c: SchoolClass) {
+    this.classDraft.set({
+      name: c.name,
+      startTime: c.startTime,
+      endTime: c.endTime,
+      lateAfterMinutes: c.lateAfterMinutes,
+      maxAbsences: c.maxAbsences,
+      days: [...c.days],
+    });
+    this.editingClassId.set(c.id);
+    this.pendingClassDelete.set(null);
+    this.classError.set('');
+    this.classMessage.set('');
   }
 
-  protected onClassStart(c: SchoolClass, event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (!input.value) return;
-    this.applyClassChange(c, { startTime: input.value }, `${c.name} now starts at ${input.value}.`, () => (input.value = c.startTime));
+  protected cancelEdit() {
+    this.editingClassId.set(null);
+    this.classDraft.set(null);
+    this.pendingClassDelete.set(null);
+    this.classError.set('');
   }
 
-  protected onClassEnd(c: SchoolClass, event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (!input.value) return;
-    this.applyClassChange(c, { endTime: input.value }, `${c.name} now ends at ${input.value}.`, () => (input.value = c.endTime));
+  protected editDraft<K extends keyof NewClass>(field: K, value: NewClass[K]) {
+    this.classDraft.update((d) => (d ? { ...d, [field]: value } : d));
   }
 
-  protected onClassLate(c: SchoolClass, event: Event) {
-    const minutes = Number((event.target as HTMLInputElement).value);
-    if (!Number.isFinite(minutes) || minutes < 0) return;
-    this.applyClassChange(c, { lateAfterMinutes: Math.round(minutes) }, `${c.name}: students are now late after ${minutes} minute(s).`);
+  protected toggleDraftDay(day: number) {
+    this.classDraft.update((d) =>
+      d ? { ...d, days: d.days.includes(day) ? d.days.filter((x) => x !== day) : [...d.days, day] } : d,
+    );
   }
 
-  protected onClassMax(c: SchoolClass, event: Event) {
-    const input = event.target as HTMLInputElement;
-    const max = Math.round(Number(input.value));
-    if (!Number.isFinite(max)) return;
-    this.applyClassChange(c, { maxAbsences: max }, `${c.name}: maximum absences set to ${max}.`, () => (input.value = String(c.maxAbsences)));
+  /** Saves the class details; stays in edit mode if the server refuses them. */
+  protected async saveClass(c: SchoolClass) {
+    const d = this.classDraft();
+    if (!d) return;
+    if (!d.name.trim()) return this.classError.set('Give the class a name.');
+    if (d.days.length === 0) return this.classError.set(`${c.name} needs at least one day.`);
+    this.savingClass.set(true);
+    const error = await this.data.updateClass(c.id, {
+      ...d,
+      name: d.name.trim(),
+      lateAfterMinutes: Math.round(d.lateAfterMinutes),
+      maxAbsences: Math.round(d.maxAbsences),
+    });
+    this.savingClass.set(false);
+    if (error) {
+      this.classMessage.set('');
+      this.classError.set(error);
+      return;
+    }
+    this.cancelEdit();
+    this.classMessage.set(`${d.name.trim()} saved.`);
   }
 
-  private async applyClassChange(c: SchoolClass, changes: Parameters<DataService['updateClass']>[1], success: string, undo?: () => void) {
-    await this.showClassResult(this.data.updateClass(c.id, changes), success);
-    if (this.classError()) undo?.();
+  protected inputNumber(event: Event): number {
+    return Number((event.target as HTMLInputElement).value);
+  }
+
+  protected lateCutoff(c: SchoolClass): string {
+    return this.data.lateCutoff(c);
   }
 
   /** Shows the outcome of a class change: the success text, or the server's error. */
@@ -277,15 +355,19 @@ export class Admin {
     this.classMessage.set(error ? '' : success);
   }
 
-  protected async addTeacher(c: SchoolClass, select: HTMLSelectElement) {
-    if (!select.value) {
-      this.classMessage.set('');
-      this.classError.set(`Choose a teacher to add to ${c.name} first.`);
-      return;
-    }
-    const name = this.data.user(select.value)?.name;
-    await this.showClassResult(this.data.setTeacherInClass(c.id, select.value, true), `${name} now teaches ${c.name}.`);
-    select.value = '';
+  protected addTeacher(c: SchoolClass, teacher: User) {
+    return this.showClassResult(
+      this.data.setTeacherInClass(c.id, teacher.id, true),
+      `${teacher.name} (${teacher.loginId}) now teaches ${c.name}.`,
+    );
+  }
+
+
+  /** Days chosen for a new class (Monday–Friday by default). */
+  protected readonly newClassDays = signal<number[]>([1, 2, 3, 4, 5]);
+
+  protected toggleNewClassDay(day: number) {
+    this.newClassDays.update((days) => (days.includes(day) ? days.filter((d) => d !== day) : [...days, day]));
   }
 
   protected removeTeacher(c: SchoolClass, teacher: User) {
@@ -306,6 +388,10 @@ export class Admin {
   protected async deleteClass(c: SchoolClass) {
     this.pendingClassDelete.set(null);
     await this.showClassResult(this.data.deleteClass(c.id), `Class ${c.name} deleted. Its students stay in their other classes.`);
+    if (!this.classError()) {
+      this.editingClassId.set(null);
+      this.classDraft.set(null);
+    }
   }
 
   // ------------------------------------------------------------ parents

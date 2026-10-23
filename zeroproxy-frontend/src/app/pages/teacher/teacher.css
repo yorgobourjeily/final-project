@@ -11,3 +11,4 @@ tr.changed { background: var(--warn-soft); }
 }
 .submit-actions { display: flex; gap: 0.5rem; }
 .form-error, .form-success { margin-top: 0.9rem; }
+.no-class { margin: 0; padding: 1rem; background: var(--bg); border-radius: 8px; color: var(--muted); }

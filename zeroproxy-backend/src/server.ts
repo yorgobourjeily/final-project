@@ -7,6 +7,7 @@ import { autoMarkAbsentToday, backfillLoginIds } from './logic';
 import { attendanceRoutes } from './routes/attendance.routes';
 import { authRoutes } from './routes/auth.routes';
 import { classRoutes } from './routes/classes.routes';
+import { daysOffRoutes } from './routes/daysoff.routes';
 import { miscRoutes } from './routes/misc.routes';
 import { scanRoutes } from './routes/scan.routes';
 import { stateRoutes } from './routes/state.routes';
@@ -26,7 +27,7 @@ app.get('/api/health', async (_req, res) => {
 
 // Login is public, scans check the camera's device key; everything after requireAuth needs a login token.
 app.use('/api', authRoutes, scanRoutes);
-app.use('/api', requireAuth, stateRoutes, attendanceRoutes, classRoutes, userRoutes, miscRoutes);
+app.use('/api', requireAuth, stateRoutes, attendanceRoutes, classRoutes, userRoutes, daysOffRoutes, miscRoutes);
 
 app.use('/api', (_req, _res) => {
   throw new HttpError(404, 'Not found.');

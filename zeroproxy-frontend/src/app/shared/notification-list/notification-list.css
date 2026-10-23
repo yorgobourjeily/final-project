@@ -12,3 +12,11 @@
 .notifications li[data-kind='limit'] { border-left-color: var(--accent); }
 .notifications li.unread { background: var(--navy-soft); font-weight: 500; }
 time { font-size: 0.8rem; white-space: nowrap; }
+.header-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.header-actions .btn + .btn { margin-left: 0; }
+.meta { display: flex; align-items: center; gap: 0.5rem; }
+.remove {
+  font: inherit; font-size: 1.1rem; line-height: 1; padding: 0.1rem 0.4rem; border: 0; border-radius: 4px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.remove:hover { background: var(--bad-soft); color: var(--bad); }

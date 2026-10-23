@@ -35,6 +35,8 @@ export interface SchoolClass {
   lateAfterMinutes: number;
   /** Maximum allowed absences per student in this class. */
   maxAbsences: number;
+  /** Days of the week the class meets: 0 = Sunday … 6 = Saturday. */
+  days: number[];
   /** Teachers who teach this class (any number). */
   teacherIds: string[];
 }
@@ -81,7 +83,24 @@ export interface Settings {
   maxAbsences: number;
 }
 
+/** A school-wide day off: no class, so no attendance is taken. */
+export interface DayOff {
+  /** YYYY-MM-DD */
+  date: string;
+  reason?: string;
+}
+
+/** One class cancelled on one date: no attendance is taken for it that day. */
+export interface ClassCancellation {
+  classId: string;
+  /** YYYY-MM-DD */
+  date: string;
+  reason?: string;
+}
+
 export interface Db {
+  daysOff: DayOff[];
+  cancellations: ClassCancellation[];
   users: User[];
   classes: SchoolClass[];
   records: AttendanceRecord[];

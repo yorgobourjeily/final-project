@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS classes (
   max_absences        int  NOT NULL CHECK (max_absences >= 1)
 );
 
+-- Days of the week the class meets (0 = Sunday … 6 = Saturday). Older databases get Monday–Friday.
+ALTER TABLE classes ADD COLUMN IF NOT EXISTS days smallint[] NOT NULL DEFAULT '{1,2,3,4,5}';
+
 -- login_id is the account's ID, used to sign in:
 --   student: digits only (e.g. "2", also what the camera machine sends)
 --   teacher: "t" + digits, parent: "p" + digits, admin: "a" + digits
@@ -108,6 +111,20 @@ BEGIN
     ALTER TABLE attendance ADD CONSTRAINT attendance_student_class_date_key UNIQUE (student_id, class_id, date);
   END IF;
 END $$;
+
+-- School-wide days off (holidays): no class, so no attendance is taken.
+CREATE TABLE IF NOT EXISTS days_off (
+  date    date PRIMARY KEY,
+  reason  text
+);
+
+-- One class cancelled on one date: no class, so no attendance is taken for it that day.
+CREATE TABLE IF NOT EXISTS class_cancellations (
+  class_id  text NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  date      date NOT NULL,
+  reason    text,
+  PRIMARY KEY (class_id, date)
+);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id          text PRIMARY KEY,

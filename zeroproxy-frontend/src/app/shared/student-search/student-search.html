@@ -6,32 +6,42 @@
     [id]="inputId"
     [value]="value()"
     (input)="onInput($event)"
-    (keydown.enter)="pickFirst($event)"
+    (focus)="onFocus()"
+    (click)="onFocus()"
+    (blur)="onBlur()"
+    (keydown.enter)="onEnter($event)"
+    (keydown.escape)="open.set(false)"
     [placeholder]="placeholder()"
-    inputmode="numeric"
+    [attr.inputmode]="numeric() ? 'numeric' : null"
     autocomplete="off"
     role="combobox"
     [attr.aria-label]="ariaLabel() || null"
     [attr.aria-controls]="listId"
-    [attr.aria-expanded]="matches().length > 0"
+    [attr.aria-expanded]="open()"
   />
-  @if (matches().length > 0) {
-    <ul class="matches" [id]="listId" role="listbox" aria-label="Matching students">
+  @if (open()) {
+    <ul class="matches" [id]="listId" role="listbox" aria-label="Matching accounts">
       @for (s of matches(); track s.id) {
-        <li role="option" [attr.aria-selected]="false">
-          <button type="button" class="match" (click)="pick(s)">
-            <span class="match-id">{{ s.studentNumber }}</span>
+        <li role="option" [attr.aria-selected]="s.loginId === typed()">
+          <button
+            type="button"
+            class="match"
+            [class.current]="s.loginId === typed()"
+            (mousedown)="$event.preventDefault()"
+            (click)="pick(s)"
+          >
+            <span class="match-id">{{ s.loginId }}</span>
             <span class="match-name">{{ s.name }}</span>
           </button>
         </li>
+      } @empty {
+        <li class="no-match">Nobody has an ID containing "{{ typed() }}".</li>
       }
     </ul>
   }
 </div>
-@if (matches().length === 0) {
-  @if (!clearOnPick() && exact(); as s) {
-    <p class="hint found">{{ s.name }}</p>
-  } @else if (typed() && !exact()) {
-    <p class="hint none">No student has an ID containing "{{ typed() }}".</p>
-  }
+@if (!open() && !clearOnPick() && exact(); as s) {
+  <p class="hint found">{{ s.name }}</p>
+} @else if (!open() && typed() && !exact()) {
+  <p class="hint none">Nobody has the ID "{{ typed() }}".</p>
 }

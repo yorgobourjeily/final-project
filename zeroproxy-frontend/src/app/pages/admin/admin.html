@@ -7,6 +7,7 @@
   <button type="button" [class.active]="tab() === 'users'" (click)="tab.set('users')">User accounts</button>
   <button type="button" [class.active]="tab() === 'create'" (click)="tab.set('create')">Create account</button>
   <button type="button" [class.active]="tab() === 'classes'" (click)="tab.set('classes')">Classes</button>
+  <button type="button" [class.active]="tab() === 'calendar'" (click)="tab.set('calendar')">Calendar</button>
   <button type="button" [class.active]="tab() === 'parents'" (click)="tab.set('parents')">Parent links</button>
   <button type="button" [class.active]="tab() === 'scanner'" (click)="tab.set('scanner')">Camera scanner</button>
   <button type="button" [class.active]="tab() === 'system'" (click)="tab.set('system')">
@@ -47,19 +48,24 @@
           </label>
         </div>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap accounts-scroll">
         <table>
           <thead>
             <tr><th>Name</th><th>Role</th><th>ID</th><th>Contact</th><th></th></tr>
           </thead>
           <tbody>
             @for (u of visibleUsers(); track u.id) {
-              <tr>
+              <tr [class.viewing]="viewingUserId() === u.id">
                 <td>{{ u.name }}</td>
                 <td><span class="chip">{{ roleLabels[u.role] }}</span></td>
                 <td>{{ u.loginId }}</td>
                 <td class="muted">{{ u.phone || u.email || '—' }}</td>
                 <td class="actions-cell">
+                  @if (u.role !== 'admin') {
+                    <button type="button" class="btn small" [attr.aria-expanded]="viewingUserId() === u.id" (click)="toggleView(u.id)">
+                      {{ viewingUserId() === u.id ? 'Hide' : 'View' }}
+                    </button>
+                  }
                   @if (u.id === me()?.id) {
                     <span class="muted">You</span>
                   } @else if (pendingDelete() === u.id) {
@@ -70,6 +76,69 @@
                   }
                 </td>
               </tr>
+              @if (viewingUserId() === u.id) {
+                <!-- Read-only details: nothing here can be changed. -->
+                <tr class="details-row">
+                  <td colspan="5">
+                    @switch (u.role) {
+                      @case ('teacher') {
+                        <h4>Classes {{ u.name }} teaches</h4>
+                        <ul class="details-list">
+                          @for (c of data.classesOfTeacher(u.id); track c.id) {
+                            <li>
+                              <strong>{{ c.name }}</strong>
+                              <span class="muted">
+                                {{ daysText(c.days) }} · {{ c.startTime }}–{{ c.endTime }} · {{ data.studentsIn(c.id).length }} student(s)
+                              </span>
+                            </li>
+                          } @empty {
+                            <li class="muted">Not teaching any class yet.</li>
+                          }
+                        </ul>
+                      }
+                      @case ('student') {
+                        <h4>Classes</h4>
+                        <ul class="details-list">
+                          @for (c of data.classesOf(u.id); track c.id) {
+                            <li>
+                              <strong>{{ c.name }}</strong>
+                              <span class="muted">
+                                {{ daysText(c.days) }} · {{ c.startTime }}–{{ c.endTime }} · {{ teacherNames(c) || 'No teacher yet' }}
+                              </span>
+                            </li>
+                          } @empty {
+                            <li class="muted">Not in any class yet.</li>
+                          }
+                        </ul>
+                        <h4>Parents</h4>
+                        <ul class="details-list">
+                          @for (p of data.parentsOf(u.id); track p.id) {
+                            <li>
+                              <strong>{{ p.loginId }}</strong> {{ p.name }}
+                              <span class="muted">{{ p.phone || p.email || '' }}</span>
+                            </li>
+                          } @empty {
+                            <li class="muted">No parent linked.</li>
+                          }
+                        </ul>
+                      }
+                      @case ('parent') {
+                        <h4>Children</h4>
+                        <ul class="details-list">
+                          @for (s of data.childrenOf(u.id); track s.id) {
+                            <li>
+                              <strong>{{ s.loginId }}</strong> {{ s.name }}
+                              <span class="muted">{{ data.classNamesOf(s.id) || 'No class' }}</span>
+                            </li>
+                          } @empty {
+                            <li class="muted">No child linked.</li>
+                          }
+                        </ul>
+                      }
+                    }
+                  </td>
+                </tr>
+              }
             } @empty {
               <tr><td colspan="5" class="muted">No account matches "{{ userSearch().trim() }}".</td></tr>
             }
@@ -113,15 +182,7 @@
             <input type="tel" formControlName="phone" />
           </label>
           @if (form.controls.role.value === 'parent') {
-            <label>
-              Child <small class="muted">(link more children later in Parent links)</small>
-              <select formControlName="childId">
-                <option value="">Select a student…</option>
-                @for (s of data.students(); track s.id) {
-                  <option [value]="s.id">{{ s.name }}</option>
-                }
-              </select>
-            </label>
+            <app-student-search label="Child's student ID" [people]="data.students()" [(value)]="childSearch" placeholder="" />
           }
           @if (form.controls.role.value === 'student') {
             <label>
@@ -174,122 +235,226 @@
           Maximum absences
           <input type="number" min="1" formControlName="maxAbsences" />
         </label>
+        <div class="new-days">
+          <span class="add-label">Days</span>
+          <div class="days" role="group" aria-label="Days the new class meets">
+            @for (d of weekDays; track d.n) {
+              <button
+                type="button"
+                class="day"
+                [class.on]="newClassDays().includes(d.n)"
+                [attr.aria-pressed]="newClassDays().includes(d.n)"
+                (click)="toggleNewClassDay(d.n)"
+              >
+                {{ d.short }}
+              </button>
+            }
+          </div>
+        </div>
         <button type="submit" class="btn primary">Create class</button>
       </form>
     </section>
 
-    @if (classError()) {
-      <p class="form-error section-sm" role="alert">{{ classError() }}</p>
-    }
-    @if (classMessage()) {
-      <p class="form-success section-sm" role="status">{{ classMessage() }}</p>
+    @if (!editingClass()) {
+      @if (classError()) {
+        <p class="form-error section-sm" role="alert">{{ classError() }}</p>
+      }
+      @if (classMessage()) {
+        <p class="form-success section-sm" role="status">{{ classMessage() }}</p>
+      }
     }
 
-    @for (c of data.classes(); track c.id) {
-      <section class="card class-card section">
+    @if (data.classes().length > 0) {
+      <div class="classes-toolbar section">
+        <input
+          class="classes-search"
+          type="search"
+          [value]="classListSearch()"
+          (input)="classListSearch.set(inputValue($event))"
+          placeholder="Search class or teacher"
+          aria-label="Search classes by class name or teacher name"
+          autocomplete="off"
+        />
+      </div>
+    }
+
+    <div class="classes-scroll">
+    @for (c of visibleClasses(); track c.id) {
+      <!-- Read only: Edit opens the class in a window on top of the page. -->
+      <section class="card class-card">
         <div class="class-head">
-          <label class="class-name">
-            <span class="sr-only">Class name</span>
-            <input [value]="c.name" (change)="onClassName(c, $event)" aria-label="Class name" />
-          </label>
-          @if (pendingClassDelete() === c.id) {
-            <span>
-              <button type="button" class="btn small danger" (click)="deleteClass(c)">Delete class</button>
-              <button type="button" class="btn small" (click)="pendingClassDelete.set(null)">Cancel</button>
-            </span>
-          } @else {
-            <button type="button" class="btn small" (click)="pendingClassDelete.set(c.id)">Delete</button>
-          }
+          <h2 class="class-title">{{ c.name }}</h2>
+          <button type="button" class="btn small" (click)="startEdit(c)">Edit</button>
         </div>
-
         <div class="rules">
-          <label class="inline">
-            Starts at
-            <input type="time" [value]="c.startTime" (change)="onClassStart(c, $event)" />
-          </label>
-          <label class="inline">
-            Ends at
-            <input type="time" [value]="c.endTime" (change)="onClassEnd(c, $event)" />
-          </label>
-          <label class="inline">
-            Late after
-            <input type="number" min="0" class="minutes" [value]="c.lateAfterMinutes" (change)="onClassLate(c, $event)" />
-            minutes
-          </label>
-          <label class="inline">
-            Maximum absences
-            <input type="number" min="1" class="minutes" [value]="c.maxAbsences" (change)="onClassMax(c, $event)" />
-          </label>
+          <span><strong>{{ daysText(c.days) }}</strong></span>
+          <span>{{ c.startTime }}–{{ c.endTime }}</span>
+          <span>Late after {{ c.lateAfterMinutes }} min ({{ lateCutoff(c) }})</span>
+          <span>Maximum {{ c.maxAbsences }} absences</span>
         </div>
-
         <div class="two-col">
           <div>
             <h3>Teachers ({{ c.teacherIds.length }})</h3>
             <ul class="people">
               @for (t of teachersOf(c); track t.id) {
-                <li>
-                  <span><strong class="child-id">{{ t.teacherNumber }}</strong> {{ t.name }}</span>
-                  <button type="button" class="btn small danger" (click)="removeTeacher(c, t)">Remove</button>
-                </li>
+                <li><span><strong class="child-id">{{ t.teacherNumber }}</strong> {{ t.name }}</span></li>
               } @empty {
                 <li class="muted">No teacher yet. Nobody can see this class's sheet.</li>
               }
             </ul>
-            <div class="add-row">
-              @if (teachersNotIn(c).length > 0) {
-                <span class="add-label">Add a teacher</span>
-                <div class="add-control">
-                  <select #teacherPick [attr.aria-label]="'Teacher to add to ' + c.name">
-                    <option value="" selected>Choose a teacher…</option>
-                    @for (t of teachersNotIn(c); track t.id) {
-                      <option [value]="t.id">{{ t.teacherNumber }} · {{ t.name }}</option>
-                    }
-                  </select>
-                  <button type="button" class="btn primary add-btn" (click)="addTeacher(c, teacherPick)">+ Add</button>
-                </div>
-              } @else {
-                <p class="muted">
-                  Every teacher already teaches this class.
-                  <button type="button" class="btn small" (click)="startCreate('teacher')">+ Create a teacher account</button>
-                </p>
-              }
-            </div>
           </div>
-
           <div>
             <h3>Students ({{ data.studentsIn(c.id).length }})</h3>
             <ul class="people">
               @for (s of data.studentsIn(c.id); track s.id) {
-                <li>
-                  <span>{{ s.name }}</span>
-                  <button type="button" class="btn small danger" (click)="removeStudent(c, s)">Remove</button>
-                </li>
+                <li><span><strong class="child-id">{{ s.studentNumber }}</strong> {{ s.name }}</span></li>
               } @empty {
                 <li class="muted">No students yet.</li>
               }
             </ul>
-            <div class="add-row">
-              @if (studentsNotIn(c).length > 0) {
-                <app-student-search
-                  label="Add a student"
-                  [students]="studentsNotIn(c)"
-                  [clearOnPick]="true"
-                  placeholder="Type a student ID"
-                  (picked)="addStudent(c, $event)"
-                />
-              } @else {
-                <p class="muted">
-                  Every student is already in this class.
-                  <button type="button" class="btn small" (click)="startCreate('student')">+ Create a student account</button>
-                </p>
-              }
-            </div>
           </div>
         </div>
       </section>
     } @empty {
-      <p class="empty">No classes yet. Create one above.</p>
+      <p class="empty">
+        {{ data.classes().length ? 'No class or teacher matches "' + classListSearch().trim() + '".' : 'No classes yet. Create one above.' }}
+      </p>
     }
+    </div>
+
+    @if (editingClass(); as c) {
+      @if (classDraft(); as d) {
+        <!-- Edit window: details change on Save; teachers and students change straight away. -->
+        <div class="modal-backdrop" (keydown.escape)="cancelEdit()">
+          <section class="card modal" role="dialog" aria-modal="true" [attr.aria-label]="'Edit ' + c.name">
+            <div class="class-head">
+              <label class="class-name">
+                <span class="sr-only">Class name</span>
+                <input [value]="d.name" (input)="editDraft('name', inputValue($event))" aria-label="Class name" />
+              </label>
+              <span class="head-actions">
+                <button type="button" class="btn small primary" [disabled]="savingClass()" (click)="saveClass(c)">
+                  {{ savingClass() ? 'Saving…' : 'Save' }}
+                </button>
+                <button type="button" class="btn small" [disabled]="savingClass()" (click)="cancelEdit()">Cancel</button>
+                @if (pendingClassDelete() === c.id) {
+                  <button type="button" class="btn small danger" (click)="deleteClass(c)">Confirm delete</button>
+                } @else {
+                  <button type="button" class="btn small danger" (click)="pendingClassDelete.set(c.id)">Delete</button>
+                }
+              </span>
+            </div>
+
+            <div class="rules">
+              <div class="days" role="group" [attr.aria-label]="'Days ' + c.name + ' meets'">
+                @for (wd of weekDays; track wd.n) {
+                  <button
+                    type="button"
+                    class="day"
+                    [class.on]="d.days.includes(wd.n)"
+                    [attr.aria-pressed]="d.days.includes(wd.n)"
+                    (click)="toggleDraftDay(wd.n)"
+                  >
+                    {{ wd.short }}
+                  </button>
+                }
+              </div>
+              <label class="inline">
+                Starts at
+                <input type="time" [value]="d.startTime" (input)="editDraft('startTime', inputValue($event))" />
+              </label>
+              <label class="inline">
+                Ends at
+                <input type="time" [value]="d.endTime" (input)="editDraft('endTime', inputValue($event))" />
+              </label>
+              <label class="inline">
+                Late after
+                <input type="number" min="0" class="minutes" [value]="d.lateAfterMinutes" (input)="editDraft('lateAfterMinutes', inputNumber($event))" />
+                minutes
+              </label>
+              <label class="inline">
+                Maximum absences
+                <input type="number" min="1" class="minutes" [value]="d.maxAbsences" (input)="editDraft('maxAbsences', inputNumber($event))" />
+              </label>
+            </div>
+
+            @if (classError()) {
+              <p class="form-error" role="alert">{{ classError() }}</p>
+            }
+            @if (classMessage()) {
+              <p class="form-success" role="status">{{ classMessage() }}</p>
+            }
+
+            <div class="two-col">
+              <div>
+                <h3>Teachers ({{ c.teacherIds.length }})</h3>
+                <ul class="people modal-list">
+                  @for (t of teachersOf(c); track t.id) {
+                    <li>
+                      <span><strong class="child-id">{{ t.teacherNumber }}</strong> {{ t.name }}</span>
+                      <button type="button" class="btn small danger" (click)="removeTeacher(c, t)">Remove</button>
+                    </li>
+                  } @empty {
+                    <li class="muted">No teacher yet. Nobody can see this class's sheet.</li>
+                  }
+                </ul>
+                <div class="add-row">
+                  @if (teachersNotIn(c).length > 0) {
+                    <app-student-search
+                      label="Add a teacher"
+                      [people]="teachersNotIn(c)"
+                      [clearOnPick]="true"
+                      [numeric]="false"
+                      placeholder="Type a teacher ID, e.g. t1"
+                      (picked)="addTeacher(c, $event)"
+                    />
+                  } @else {
+                    <p class="muted">
+                      Every teacher already teaches this class.
+                      <button type="button" class="btn small" (click)="cancelEdit(); startCreate('teacher')">+ Create a teacher account</button>
+                    </p>
+                  }
+                </div>
+              </div>
+
+              <div>
+                <h3>Students ({{ data.studentsIn(c.id).length }})</h3>
+                <ul class="people modal-list">
+                  @for (s of data.studentsIn(c.id); track s.id) {
+                    <li>
+                      <span><strong class="child-id">{{ s.studentNumber }}</strong> {{ s.name }}</span>
+                      <button type="button" class="btn small danger" (click)="removeStudent(c, s)">Remove</button>
+                    </li>
+                  } @empty {
+                    <li class="muted">No students yet.</li>
+                  }
+                </ul>
+                <div class="add-row">
+                  @if (studentsNotIn(c).length > 0) {
+                    <app-student-search
+                      label="Add a student"
+                      [people]="studentsNotIn(c)"
+                      [clearOnPick]="true"
+                      placeholder="Type a student ID"
+                      (picked)="addStudent(c, $event)"
+                    />
+                  } @else {
+                    <p class="muted">
+                      Every student is already in this class.
+                      <button type="button" class="btn small" (click)="cancelEdit(); startCreate('student')">+ Create a student account</button>
+                    </p>
+                  }
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      }
+    }
+  }
+
+  @case ('calendar') {
+    <app-days-off-calendar />
   }
 
   @case ('parents') {
@@ -344,7 +509,7 @@
                 <td class="link-cell">
                   @if (studentsNotLinkedTo(p).length > 0) {
                     <app-student-search
-                      [students]="studentsNotLinkedTo(p)"
+                      [people]="studentsNotLinkedTo(p)"
                       [clearOnPick]="true"
                       [floating]="false"
                       placeholder="Type a student ID"
@@ -375,7 +540,7 @@
         <h2>Test a scan</h2>
         <p class="muted">Sends exactly what the camera machine sends when it recognises a face.</p>
         <div class="stack">
-          <app-student-search label="Student ID" [students]="data.students()" [(value)]="scanId" />
+          <app-student-search label="Student ID" [people]="data.students()" [(value)]="scanId" />
           <label>
             Time of arrival
             <input type="time" [value]="scanTime()" (input)="scanTime.set(inputValue($event))" />

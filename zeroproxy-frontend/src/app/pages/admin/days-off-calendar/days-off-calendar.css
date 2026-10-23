@@ -1,0 +1,56 @@
+.layout { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 2fr) minmax(min(100%, 280px), 1fr); align-items: start; }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+.cal-toolbar select { font-weight: 600; color: var(--navy); }
+.nav { font-size: 1.1rem; line-height: 1; padding: 0.3rem 0.7rem; }
+
+.grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.35rem; }
+.head { text-align: center; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding-bottom: 0.25rem; }
+.cell {
+  font: inherit; text-align: left; min-height: 4.2rem; padding: 0.4rem; border-radius: 8px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 0.2rem; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+}
+.cell:hover { border-color: var(--accent); }
+.cell.weekend { background: var(--bg); }
+.cell.empty { cursor: default; border: 0; background: transparent; }
+.cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.cell.off { background: var(--bad-soft); border-color: #e5a3a3; }
+.cell.selected { outline: 3px solid var(--navy); outline-offset: 1px; }
+.num { font-weight: 600; font-size: 0.9rem; }
+.off-label { font-size: 0.7rem; font-weight: 600; color: var(--bad); line-height: 1.2; overflow-wrap: anywhere; }
+
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin: 1rem 0 0; font-size: 0.82rem; }
+.swatch { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 4px; }
+.swatch.off { background: var(--bad-soft); border: 1px solid #e5a3a3; }
+.swatch.today { box-shadow: inset 0 0 0 2px var(--accent); margin-left: 0.6rem; }
+
+.side { display: grid; gap: 1.25rem; }
+.field { margin-bottom: 0.9rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.off-badge { background: var(--bad-soft); color: var(--bad); margin-right: 0.35rem; }
+.form-error, .form-success { margin: 0.9rem 0 0; }
+
+.cancel-label { font-size: 0.7rem; font-weight: 600; color: var(--warn); line-height: 1.2; }
+.class-search { width: 100%; font-size: 0.85rem; padding: 0.4rem 0.6rem; margin-bottom: 0.5rem; }
+.day-classes { list-style: none; margin: 0; padding: 0 0.25rem 0 0; max-height: 300px; overflow-y: auto; }
+/* Details on the left (they wrap if long), the button always in the same place on the right. */
+.day-classes li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.75rem;
+  padding: 0.6rem 0; border-bottom: 1px solid var(--border);
+}
+.day-classes li.muted { display: block; }
+.day-classes li:last-child { border-bottom: 0; }
+.day-classes li.cancelled .class-info strong { text-decoration: line-through; color: var(--muted); }
+.class-info { display: grid; font-size: 0.9rem; min-width: 0; overflow-wrap: anywhere; }
+.day-classes .btn { white-space: nowrap; }
+.class-info .muted { font-size: 0.8rem; }
+.class-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+.cancelled-badge { background: var(--warn-soft); color: var(--warn); }
+
+.upcoming { list-style: none; margin: 0; padding: 0; }
+.upcoming li { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.upcoming li:last-child { border-bottom: 0; }
+.link { all: unset; cursor: pointer; display: grid; font-size: 0.9rem; }
+.link:hover strong { color: var(--accent); }

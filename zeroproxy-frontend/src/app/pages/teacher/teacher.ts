@@ -2,13 +2,15 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, u
 import { AuthService } from '../../auth.service';
 import { DataService, SheetEntry } from '../../data.service';
 import { NewClass, Status } from '../../models';
-import { dateKey } from '../../utils';
+import { dateKey, dayPlural, daysText } from '../../utils';
 import { AttendanceSummary } from '../../shared/attendance-summary/attendance-summary';
 import { AttendanceTable } from '../../shared/attendance-table/attendance-table';
 import { NotificationList } from '../../shared/notification-list/notification-list';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
+import { TeacherCalendar } from './teacher-calendar/teacher-calendar';
+import { tabInUrl } from '../../tab-state';
 
-type Tab = 'sheet' | 'history' | 'alerts';
+const TABS = ['sheet', 'history', 'calendar', 'alerts'] as const;
 
 /** An unsaved change on the sheet: an arrival time, or a chosen status. */
 type Draft = { time: string } | { status: Status };
@@ -17,7 +19,7 @@ type ClassTimes = Partial<Pick<NewClass, 'startTime' | 'endTime' | 'lateAfterMin
 
 @Component({
   selector: 'app-teacher',
-  imports: [AttendanceSummary, AttendanceTable, NotificationList, StatusBadge],
+  imports: [AttendanceSummary, AttendanceTable, NotificationList, StatusBadge, TeacherCalendar],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './teacher.html',
   styleUrl: './teacher.css',
@@ -26,8 +28,10 @@ export class Teacher {
   protected readonly data = inject(DataService);
   protected readonly user = inject(AuthService).user;
   protected readonly today = dateKey();
+  protected readonly daysText = daysText;
+  protected readonly dayPlural = dayPlural;
 
-  protected readonly tab = signal<Tab>('sheet');
+  protected readonly tab = tabInUrl(TABS, 'sheet');
   protected readonly date = signal(this.today);
   protected readonly message = signal('');
   protected readonly error = signal('');
@@ -62,11 +66,26 @@ export class Teacher {
     return c ? this.data.lateCutoff(c) : '';
   });
 
+  /** The school-wide day off on the chosen date, if any. */
+  protected readonly dayOff = computed(() => this.data.dayOff(this.date()));
+  /** Whether the admin cancelled the current class on the chosen date. */
+  protected readonly cancelled = computed(() => {
+    const cls = this.currentClass();
+    return !!cls && !!this.data.cancellation(cls.id, this.date());
+  });
+
+  /** Whether the current class takes place on the chosen date (on its schedule and not a day off). */
+  protected readonly meetsOnDate = computed(() => {
+    const cls = this.currentClass();
+    return !!cls && this.data.hasClassOn(cls, this.date());
+  });
+
   /** Sheet rows: what is saved, overlaid with what the teacher has changed but not submitted yet. */
   protected readonly sheet = computed(() => {
     const date = this.date();
     const drafts = this.drafts();
     const cls = this.editedClass();
+    if (!this.meetsOnDate()) return []; // no class that day, so nobody to mark
     const records = this.data.records().filter((r) => r.classId === cls?.id && r.date === date);
     return this.classStudents().map((student) => {
       const record = records.find((r) => r.studentId === student.id);

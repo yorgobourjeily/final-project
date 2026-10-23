@@ -23,6 +23,8 @@ export interface ClassRow {
   end_time: string;
   late_after_minutes: number;
   max_absences: number;
+  /** Days of the week the class meets: 0 = Sunday … 6 = Saturday. */
+  days: number[];
 }
 
 export interface AttendanceRow {
@@ -75,6 +77,7 @@ export const toClass = (c: ClassRow, teacherIds: string[]) => ({
   endTime: c.end_time,
   lateAfterMinutes: c.late_after_minutes,
   maxAbsences: c.max_absences,
+  days: [...c.days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)),
   teacherIds,
 });
 

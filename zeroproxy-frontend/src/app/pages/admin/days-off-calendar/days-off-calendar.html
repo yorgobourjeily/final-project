@@ -1,0 +1,162 @@
+<div class="layout">
+  <section class="card calendar">
+    <div class="cal-toolbar">
+      <button type="button" class="btn small nav" (click)="step(-1)" aria-label="Previous month">‹</button>
+      <select [value]="month()" (change)="onMonth($event)" aria-label="Month">
+        @for (m of months; track $index) {
+          <option [value]="$index" [selected]="$index === month()">{{ m }}</option>
+        }
+      </select>
+      <select (change)="onYear($event)" aria-label="Year">
+        @for (y of years(); track y) {
+          <option [value]="y" [selected]="y === year()">{{ y }}</option>
+        }
+      </select>
+      <button type="button" class="btn small nav" (click)="step(1)" aria-label="Next month">›</button>
+      <button type="button" class="btn small" (click)="goToday()">Today</button>
+    </div>
+
+    <div class="grid" role="grid" [attr.aria-label]="months[month()] + ' ' + year()">
+      @for (h of weekdayHeaders; track h) {
+        <div class="head" role="columnheader">{{ h }}</div>
+      }
+      @for (week of weeks(); track $index) {
+        @for (cell of week; track $index) {
+          @if (cell) {
+            <button
+              type="button"
+              class="cell"
+              role="gridcell"
+              [class.off]="!!cell.off"
+              [class.weekend]="cell.weekend"
+              [class.today]="cell.isToday"
+              [class.selected]="cell.date === selected()"
+              [attr.aria-selected]="cell.date === selected()"
+              [attr.aria-label]="cell.date + (cell.off ? ', day off' + (cell.off.reason ? ': ' + cell.off.reason : '') : '')"
+              (click)="select(cell.date)"
+            >
+              <span class="num">{{ cell.day }}</span>
+              @if (cell.off) {
+                <span class="off-label">{{ cell.off.reason || 'Day off' }}</span>
+              } @else if (cell.cancelled) {
+                <span class="cancel-label">{{ cell.cancelled }} class{{ cell.cancelled > 1 ? 'es' : '' }} cancelled</span>
+              }
+            </button>
+          } @else {
+            <div class="cell empty" aria-hidden="true"></div>
+          }
+        }
+      }
+    </div>
+    <p class="legend muted">
+      <span class="swatch off"></span> Day off
+      <span class="swatch today"></span> Today
+    </p>
+  </section>
+
+  <div class="side">
+    <section class="card">
+      @if (selected(); as date) {
+        <h2>{{ date | date: 'EEEE d MMMM y' }}</h2>
+        @if (selectedOff(); as off) {
+          <p><span class="badge off-badge">Day off</span> {{ off.reason || '' }}</p>
+          <p class="muted">No class on this day: attendance is not taken and nobody is marked absent.</p>
+          <div class="actions">
+            <button type="button" class="btn danger" [disabled]="busy()" (click)="removeOff()">Remove day off</button>
+          </div>
+        } @else {
+          <p class="muted">A normal school day.</p>
+          <label class="field">
+            Reason
+            <input [value]="reason()" (input)="onReason($event)" maxlength="100" />
+          </label>
+          <button type="button" class="btn primary" [disabled]="busy()" (click)="markOff()">Mark as day off</button>
+        }
+      } @else {
+        <h2>Days off</h2>
+        <p class="muted">Choose a year and month, then click a day to make it a day off. There is no class on a day off, so attendance is not taken.</p>
+      }
+      @if (error()) {
+        <p class="form-error" role="alert">{{ error() }}</p>
+      }
+      @if (message()) {
+        <p class="form-success" role="status">{{ message() }}</p>
+      }
+    </section>
+
+    @if (selected()) {
+      <section class="card">
+        <h3>Classes on this day</h3>
+        @if (selectedOff()) {
+          <p class="muted">It's a day off, so every class is off.</p>
+        }
+        @if (dayClasses().length > 0) {
+          <input
+            class="class-search"
+            type="search"
+            [value]="classSearch()"
+            (input)="onClassSearch($event)"
+            placeholder="Search class or teacher"
+            aria-label="Search classes by class name or teacher name"
+            autocomplete="off"
+          />
+        }
+        <ul class="day-classes">
+          @for (k of shownClasses(); track k.schoolClass.id) {
+            <li [class.cancelled]="k.cancelled">
+              <div class="class-info">
+                <strong>{{ k.schoolClass.name }}</strong>
+                <span class="muted">
+                  {{ k.schoolClass.startTime }}–{{ k.schoolClass.endTime }} · {{ k.students }} student(s)
+                  @if (k.teachers) {
+                    · {{ k.teachers }}
+                  }
+                </span>
+              </div>
+              @if (!selectedOff()) {
+                @if (k.cancelled) {
+                  <span class="class-actions">
+                    <span class="badge cancelled-badge">Cancelled</span>
+                    <button type="button" class="btn small" [disabled]="busy()" (click)="restoreClass(k.schoolClass.id, k.schoolClass.name)">
+                      Restore class
+                    </button>
+                  </span>
+                } @else if (pendingCancel() === k.schoolClass.id) {
+                  <span class="class-actions">
+                    <button type="button" class="btn small danger" [disabled]="busy()" (click)="cancelClass(k.schoolClass.id, k.schoolClass.name)">
+                      Confirm cancel
+                    </button>
+                    <button type="button" class="btn small" (click)="pendingCancel.set(null)">Back</button>
+                  </span>
+                } @else {
+                  <button type="button" class="btn small" [disabled]="busy()" (click)="pendingCancel.set(k.schoolClass.id)">Cancel class</button>
+                }
+              }
+            </li>
+          } @empty {
+            <li class="muted">
+              {{ dayClasses().length ? 'No class or teacher matches "' + classSearch().trim() + '".' : 'No class is scheduled on this day.' }}
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <section class="card">
+      <h3>Upcoming days off</h3>
+      <ul class="upcoming">
+        @for (d of upcoming(); track d.date) {
+          <li>
+            <button type="button" class="link" (click)="show(d.date)">
+              <strong>{{ d.date | date: 'EEE d MMM y' }}</strong>
+              <span class="muted">{{ d.reason || 'Day off' }}</span>
+            </button>
+            <button type="button" class="btn small danger" [disabled]="busy()" (click)="removeOff(d.date)">Remove</button>
+          </li>
+        } @empty {
+          <li class="muted">No days off planned.</li>
+        }
+      </ul>
+    </section>
+  </div>
+</div>

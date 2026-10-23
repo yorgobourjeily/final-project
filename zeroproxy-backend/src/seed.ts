@@ -1,16 +1,17 @@
 import bcrypt from 'bcryptjs';
 import { transaction } from './db';
-import { addLog, alertFamily, checkAbsenceLimit, saveRecord } from './logic';
+import { addLog, alertFamily, checkAbsenceLimit, saveRecord, weekdayOf } from './logic';
 import { Status } from './types';
-import { addMinutes, pastWeekdays } from './utils';
+import { addMinutes, dateKey, pastWeekdays } from './utils';
 
 // Demo data: 3 classes, 3 teachers, 8 students with parents, and 10 school days of history.
 // Karim, Lea and Elie are in two classes each (their grade + Computer Science).
 
+// days: 0 = Sunday … 6 = Saturday. The grades meet Monday–Friday, Computer Science on Tuesday and Thursday.
 const CLASSES = [
-  { id: 'c-10a', name: 'Grade 10 – A', start: '08:00', end: '14:00', late: 10, max: 5, teachers: ['u-teacher'] },
-  { id: 'c-10b', name: 'Grade 10 – B', start: '08:00', end: '13:30', late: 15, max: 6, teachers: ['u-teacher', 'u-teacher2'] },
-  { id: 'c-cs', name: 'Computer Science', start: '14:30', end: '16:00', late: 10, max: 4, teachers: ['u-teacher3'] },
+  { id: 'c-10a', name: 'Grade 10 – A', start: '08:00', end: '14:00', late: 10, max: 5, days: [1, 2, 3, 4, 5], teachers: ['u-teacher'] },
+  { id: 'c-10b', name: 'Grade 10 – B', start: '08:00', end: '13:30', late: 15, max: 6, days: [1, 2, 3, 4, 5], teachers: ['u-teacher', 'u-teacher2'] },
+  { id: 'c-cs', name: 'Computer Science', start: '14:30', end: '16:00', late: 10, max: 4, days: [2, 4], teachers: ['u-teacher3'] },
 ];
 
 // Everyone signs in with their ID, counting up from 1 per role: admin a1, teachers t1–t3, students 1–8, parents p1–p8.
@@ -51,14 +52,20 @@ export async function seedDemoData() {
 
   await transaction(async (db) => {
     await db.query(
-      'TRUNCATE logs, notifications, attendance, class_teachers, class_students, parent_children, users, classes, settings RESTART IDENTITY CASCADE',
+      'TRUNCATE logs, notifications, attendance, class_cancellations, class_teachers, class_students, parent_children, users, classes, settings, days_off RESTART IDENTITY CASCADE',
     );
     await db.query('INSERT INTO settings (id, max_absences) VALUES (1, 5)');
 
+    // One example day off: the next Friday at least 3 days away.
+    const friday = new Date();
+    friday.setDate(friday.getDate() + 3);
+    while (friday.getDay() !== 5) friday.setDate(friday.getDate() + 1);
+    await db.query('INSERT INTO days_off (date, reason) VALUES ($1, $2)', [dateKey(friday), 'Staff training day']);
+
     for (const c of CLASSES) {
       await db.query(
-        'INSERT INTO classes (id, name, start_time, end_time, late_after_minutes, max_absences) VALUES ($1, $2, $3, $4, $5, $6)',
-        [c.id, c.name, c.start, c.end, c.late, c.max],
+        'INSERT INTO classes (id, name, start_time, end_time, late_after_minutes, max_absences, days) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [c.id, c.name, c.start, c.end, c.late, c.max, c.days],
       );
     }
 
@@ -91,6 +98,7 @@ export async function seedDemoData() {
           const code = pattern[d];
           if (!code) continue;
           const c = CLASSES.find((x) => x.id === classId)!;
+          if (!c.days.includes(weekdayOf(date))) continue; // the class doesn't meet that day
           const studentId = `u-student${i + 1}`;
           const status: Status = code === 'P' ? 'present' : code === 'L' ? 'late' : 'absent';
           // Present: a few minutes before the start. Late: 5–30 minutes after the late cutoff.
