@@ -2,7 +2,6 @@
 .class-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 1rem; }
 .class-picker select { font-weight: 600; color: var(--navy); }
 .class-times { padding: 0.75rem 1rem; background: var(--bg); border-radius: 8px; }
-.minutes { width: 5rem; }
 tr.changed { background: var(--warn-soft); }
 .unsaved { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; color: var(--warn); margin-left: 0.4rem; }
 .submit-bar {
@@ -12,3 +11,8 @@ tr.changed { background: var(--warn-soft); }
 .submit-actions { display: flex; gap: 0.5rem; }
 .form-error, .form-success { margin-top: 0.9rem; }
 .no-class { margin: 0; padding: 1rem; background: var(--bg); border-radius: 8px; color: var(--muted); }
+.session-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1rem; margin-bottom: 1rem; }
+.session-text { margin: 0; flex: 1 1 18rem; }
+.session-dot { display: inline-block; width: 0.6rem; height: 0.6rem; margin-right: 0.35rem; border-radius: 50%; background: #16a34a; }
+.session-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.session-error { flex-basis: 100%; margin: 0; }

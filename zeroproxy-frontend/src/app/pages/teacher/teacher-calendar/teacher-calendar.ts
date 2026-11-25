@@ -15,12 +15,17 @@ interface DayCell {
   date: string;
   day: number;
   off?: DayOff;
-  /** Whether at least one of the teacher's classes takes place that day (not a day off, not cancelled). */
+  /** Whether at least one of the classes takes place that day (not a day off, not cancelled). */
   hasClass: boolean;
+  /** Whether at least one of the classes is cancelled that day. */
+  cancelled: boolean;
   isToday: boolean;
 }
 
-/** Teacher calendar: which of the teacher's classes meet on each day, and at what time. Read only. */
+/**
+ * Which of the given classes meet on each day and at what time, and which are cancelled.
+ * Shown to teachers, who can cancel today's and later classes (`editable`), and read-only to students and parents.
+ */
 @Component({
   selector: 'app-teacher-calendar',
   imports: [DatePipe],
@@ -31,6 +36,7 @@ interface DayCell {
 export class TeacherCalendar {
   protected readonly data = inject(DataService);
   readonly classes = input.required<SchoolClass[]>();
+  readonly editable = input(false);
 
   protected readonly today = dateKey();
   protected readonly months = MONTHS;
@@ -40,6 +46,10 @@ export class TeacherCalendar {
   /** 0 = January … 11 = December. */
   protected readonly month = signal(new Date().getMonth());
   protected readonly selected = signal(this.today);
+  /** The class being asked "cancel it?" on the selected day. */
+  protected readonly pendingCancel = signal<string | null>(null);
+  protected readonly busy = signal(false);
+  protected readonly error = signal('');
 
   /** A few years around now, plus the year shown. */
   protected readonly years = computed(() => {
@@ -49,7 +59,7 @@ export class TeacherCalendar {
     return list.sort((a, b) => a - b);
   });
 
-  /** The teacher's classes meeting on a date (by their weekdays), earliest first. */
+  /** The classes meeting on a date (by their weekdays), earliest first. */
   private lessonsOn(date: string): Lesson[] {
     return this.classes()
       .filter((c) => this.data.meetsOn(c, date))
@@ -74,11 +84,13 @@ export class TeacherCalendar {
     for (let day = 1; day <= daysInMonth; day++) {
       const date = `${year}-${pad(month + 1)}-${pad(day)}`;
       const off = this.data.dayOff(date);
+      const lessons = this.lessonsOn(date);
       cells.push({
         date,
         day,
         off,
-        hasClass: !off && this.lessonsOn(date).some((l) => !l.cancelled),
+        hasClass: !off && lessons.some((l) => !l.cancelled),
+        cancelled: lessons.some((l) => l.cancelled),
         isToday: date === this.today,
       });
     }
@@ -93,6 +105,20 @@ export class TeacherCalendar {
   protected readonly selectedLessons = computed(() =>
     this.lessonsOn(this.selected()).map((l) => ({ ...l, students: this.data.studentsIn(l.schoolClass.id).length })),
   );
+
+  protected selectDay(date: string) {
+    this.selected.set(date);
+    this.pendingCancel.set(null);
+    this.error.set('');
+  }
+
+  /** Cancels the class on the selected day, or puts it back on. */
+  protected async setCancelled(classId: string, cancelled: boolean) {
+    this.busy.set(true);
+    this.error.set((await this.data.setClassCancelled(classId, this.selected(), cancelled)) ?? '');
+    this.pendingCancel.set(null);
+    this.busy.set(false);
+  }
 
   protected onYear(event: Event) {
     this.year.set(Number((event.target as HTMLSelectElement).value));
@@ -112,6 +138,6 @@ export class TeacherCalendar {
     const now = new Date();
     this.year.set(now.getFullYear());
     this.month.set(now.getMonth());
-    this.selected.set(this.today);
+    this.selectDay(this.today);
   }
 }

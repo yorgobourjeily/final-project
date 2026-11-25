@@ -2,8 +2,9 @@ import cors from 'cors';
 import express, { ErrorRequestHandler } from 'express';
 import { requireAuth } from './auth';
 import { config } from './config';
-import { ensureDatabase, one, pool } from './db';
-import { autoMarkAbsentToday, backfillLoginIds } from './logic';
+import { ensureDatabase, pool } from './db';
+import { sendPendingEmails } from './email';
+import { backfillLoginIds, closeForgottenSessions } from './logic';
 import { attendanceRoutes } from './routes/attendance.routes';
 import { authRoutes } from './routes/auth.routes';
 import { classRoutes } from './routes/classes.routes';
@@ -13,7 +14,6 @@ import { scanRoutes } from './routes/scan.routes';
 import { stateRoutes } from './routes/state.routes';
 import { userRoutes } from './routes/users.routes';
 import { SCHEMA } from './schema';
-import { seedDemoData } from './seed';
 import { HttpError } from './utils';
 
 const app = express();
@@ -57,19 +57,20 @@ async function main() {
   }
   await ensureDatabase();
   await pool.query(SCHEMA);
-
-  const users = await one<{ count: number }>(pool, 'SELECT count(*)::int AS count FROM users');
-  if (!users?.count) {
-    console.log('Empty database: loading demo data…');
-    await seedDemoData();
-  }
+  await pool.query('INSERT INTO settings (id, max_absences) VALUES (1, 5) ON CONFLICT (id) DO NOTHING');
   await backfillLoginIds();
   if (!config.deviceKey) console.warn('DEVICE_KEY is empty: the camera machine cannot send scans. Set it in zeroproxy-backend/.env.');
 
-  // Students who haven't scanned in by their class's late cutoff are marked absent automatically.
-  const runAutoAbsent = () => autoMarkAbsentToday().catch((err) => console.error('Auto-absent failed:', err));
-  await runAutoAbsent();
-  setInterval(runAutoAbsent, 60_000);
+  // Classes left running from an earlier day are ended, which marks students not seen as absent.
+  const runCloseSessions = () => closeForgottenSessions().catch((err) => console.error('Closing classes failed:', err));
+  await runCloseSessions();
+  setInterval(runCloseSessions, 60_000);
+
+  if (config.smtp.host) {
+    setInterval(() => sendPendingEmails().catch((err) => console.error('Sending emails failed:', err)), 15_000);
+  } else {
+    console.warn('SMTP_HOST is empty: parents are not emailed. Set it in zeroproxy-backend/.env.');
+  }
 
   app.listen(config.port, () => {
     console.log(`ZeroProxy API running on http://localhost:${config.port}  (database "${config.db.database}")`);

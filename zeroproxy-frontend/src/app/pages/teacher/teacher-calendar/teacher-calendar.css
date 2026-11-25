@@ -20,6 +20,7 @@
 .cell.selected { outline: 3px solid var(--navy); outline-offset: 1px; }
 .num { font-weight: 600; font-size: 0.9rem; }
 .off-label { font-size: 0.7rem; font-weight: 600; color: var(--bad); line-height: 1.2; overflow-wrap: anywhere; }
+.cancelled-label { font-size: 0.7rem; font-weight: 600; color: var(--warn); line-height: 1.2; overflow-wrap: anywhere; }
 
 .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin: 1rem 0 0; font-size: 0.82rem; }
 .swatch { display: inline-block; width: 0.9rem; height: 0.9rem; border-radius: 4px; }
@@ -39,3 +40,4 @@
 .day-classes li.cancelled strong { text-decoration: line-through; color: var(--muted); }
 .class-info { display: grid; font-size: 0.9rem; min-width: 0; overflow-wrap: anywhere; }
 .class-info .muted { font-size: 0.8rem; }
+.lesson-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.35rem; }

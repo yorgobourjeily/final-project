@@ -20,6 +20,39 @@
       <span class="muted">{{ classStudents().length }} student(s) · {{ daysText(cls.days) }} · {{ cls.startTime }}–{{ cls.endTime }}</span>
     </div>
 
+    @if (hasClassToday()) {
+      <section class="card session-bar">
+        @if (data.isRunning(cls.id)) {
+          <p class="session-text">
+            <span class="session-dot" aria-hidden="true"></span>
+            <strong>{{ cls.name }} is running</strong> since {{ session()?.startedAt }}.
+          </p>
+          @if (confirmingEnd()) {
+            <div class="session-confirm">
+              <button type="button" class="btn danger" [disabled]="sessionBusy()" (click)="endClass(cls.id)">Confirm end</button>
+              <button type="button" class="btn" [disabled]="sessionBusy()" (click)="confirmingEnd.set(false)">Cancel</button>
+            </div>
+          } @else {
+            <button type="button" class="btn" (click)="confirmingEnd.set(true)">End class</button>
+          }
+        } @else {
+          <p class="session-text">
+            @if (session(); as s) {
+              <strong>{{ cls.name }} ended</strong> at {{ s.endedAt }}.
+            } @else {
+              <strong>{{ cls.name }} has not started.</strong> The cameras take attendance only after you start it.
+            }
+          </p>
+          <button type="button" class="btn primary" [disabled]="sessionBusy()" (click)="startClass(cls.id)">
+            {{ session() ? 'Start again' : 'Start class' }}
+          </button>
+        }
+        @if (sessionError()) {
+          <p class="form-error session-error" role="alert">{{ sessionError() }}</p>
+        }
+      </section>
+    }
+
     <nav class="tabs" aria-label="Teacher sections">
       <button type="button" [class.active]="tab() === 'sheet'" (click)="tab.set('sheet')">Attendance sheet</button>
       <button type="button" [class.active]="tab() === 'history'" (click)="tab.set('history')">History</button>
@@ -45,19 +78,9 @@
             }
           </div>
           <div class="toolbar class-times">
-            <label class="inline">
-              {{ cls.name }} starts at
-              <input type="time" [value]="editedClass()?.startTime" (change)="onClassTime('startTime', $event)" />
-            </label>
-            <label class="inline">
-              ends at
-              <input type="time" [value]="editedClass()?.endTime" (change)="onClassTime('endTime', $event)" />
-            </label>
-            <label class="inline">
-              Late after
-              <input type="number" min="0" class="minutes" [value]="editedClass()?.lateAfterMinutes" (change)="onLateMinutes($event)" />
-              minutes
-            </label>
+            <span>{{ cls.name }} starts at <strong>{{ cls.startTime }}</strong></span>
+            <span>ends at <strong>{{ cls.endTime }}</strong></span>
+            <span>Late after <strong>{{ cls.lateAfterMinutes }}</strong> minutes</span>
             <span class="muted">Arrivals after {{ lateAfter() }} count as late.</span>
           </div>
 
@@ -76,7 +99,7 @@
             <div class="table-wrap">
               <table>
                 <thead>
-                  <tr><th>Student</th><th>Student ID</th><th>Status</th><th>Arrival time</th><th>Change status</th></tr>
+                  <tr><th>Student</th><th>Student ID</th><th>Status</th><th>Change status</th></tr>
                 </thead>
                 <tbody>
                   @for (row of sheet(); track row.student.id) {
@@ -89,14 +112,6 @@
                       </td>
                       <td class="muted">{{ row.student.studentNumber }}</td>
                       <td><app-status-badge [status]="row.status" /></td>
-                      <td>
-                        <input
-                          type="time"
-                          [value]="row.time"
-                          [attr.aria-label]="'Arrival time for ' + row.student.name"
-                          (change)="onTime(row.student.id, $event)"
-                        />
-                      </td>
                       <td>
                         <select [attr.aria-label]="'Status for ' + row.student.name" (change)="onStatus(row.student.id, $event)">
                           <option value="present" [selected]="row.status === 'present'">Present</option>
@@ -173,14 +188,14 @@
             <h2>{{ s.name }}</h2>
             <app-attendance-summary [records]="selectedHistory()" [maxAbsences]="maxAbsences()" />
             <div class="card flush scroll-table">
-              <app-attendance-table [records]="selectedHistory()" />
+              <app-attendance-table [records]="selectedHistory()" [showArrival]="false" />
             </div>
           </section>
         }
       }
 
       @case ('calendar') {
-        <app-teacher-calendar [classes]="myClasses()" />
+        <app-teacher-calendar [classes]="myClasses()" [editable]="true" />
       }
 
       @case ('alerts') {

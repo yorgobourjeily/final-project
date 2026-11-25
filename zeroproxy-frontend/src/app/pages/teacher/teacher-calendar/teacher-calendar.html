@@ -32,11 +32,13 @@
               [class.today]="cell.isToday"
               [class.selected]="cell.date === selected()"
               [attr.aria-selected]="cell.date === selected()"
-              (click)="selected.set(cell.date)"
+              (click)="selectDay(cell.date)"
             >
               <span class="num">{{ cell.day }}</span>
               @if (cell.off) {
                 <span class="off-label">{{ cell.off.reason || 'Day off' }}</span>
+              } @else if (cell.cancelled) {
+                <span class="cancelled-label">Cancelled</span>
               }
             </button>
           } @else {
@@ -63,16 +65,36 @@
           <li [class.cancelled]="l.cancelled">
             <div class="class-info">
               <strong>{{ l.schoolClass.name }}</strong>
-              <span class="muted">{{ l.schoolClass.startTime }}–{{ l.schoolClass.endTime }} · {{ l.students }} student(s)</span>
+              <span class="muted">
+                {{ l.schoolClass.startTime }}–{{ l.schoolClass.endTime }}
+                @if (editable()) {
+                  · {{ l.students }} student(s)
+                }
+              </span>
             </div>
-            @if (l.cancelled) {
-              <span class="badge cancelled-badge">Cancelled</span>
-            }
+            <div class="lesson-actions">
+              @if (l.cancelled) {
+                <span class="badge cancelled-badge">Cancelled</span>
+              }
+              @if (editable() && selected() >= today) {
+                @if (l.cancelled) {
+                  <button type="button" class="btn small" [disabled]="busy()" (click)="setCancelled(l.schoolClass.id, false)">Restore</button>
+                } @else if (pendingCancel() === l.schoolClass.id) {
+                  <button type="button" class="btn small danger" [disabled]="busy()" (click)="setCancelled(l.schoolClass.id, true)">Confirm</button>
+                  <button type="button" class="btn small" [disabled]="busy()" (click)="pendingCancel.set(null)">Keep</button>
+                } @else {
+                  <button type="button" class="btn small" (click)="pendingCancel.set(l.schoolClass.id)">Cancel class</button>
+                }
+              }
+            </div>
           </li>
         } @empty {
-          <li class="muted">You have no class on this day.</li>
+          <li class="muted">No class on this day.</li>
         }
       </ul>
+      @if (error()) {
+        <p class="form-error" role="alert">{{ error() }}</p>
+      }
     }
   </section>
 </div>

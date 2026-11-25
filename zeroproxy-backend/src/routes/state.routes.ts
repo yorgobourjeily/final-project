@@ -1,18 +1,22 @@
 import { Router } from 'express';
 import { me } from '../auth';
 import { one, pool, rows } from '../db';
+import { nextLoginIds } from '../logic';
 import {
   AttendanceRow,
   ClassRow,
   LogRow,
   NotificationRow,
+  SessionRow,
   toClass,
   toLog,
   toNotification,
   toRecord,
+  toSession,
   toUser,
   UserRow,
 } from '../types';
+import { dateKey } from '../utils';
 
 export const stateRoutes = Router();
 
@@ -110,6 +114,22 @@ stateRoutes.get('/state', async (req, res) => {
       )
     : [];
 
+  // Students and parents get the teachers of their own classes only, to contact them.
+  const teacherContacts =
+    (auth.role === 'student' || auth.role === 'parent') && classes.length
+      ? await rows<{ class_id: string; name: string; email: string | null }>(
+          pool,
+          `SELECT ct.class_id, u.name, u.email FROM class_teachers ct JOIN users u ON u.id = ct.teacher_id
+           WHERE ct.class_id = ANY($1) ORDER BY u.name`,
+          [classes.map((c) => c.id)],
+        )
+      : [];
+
+  // Today's started classes among the ones this user can see.
+  const sessions = classes.length
+    ? await rows<SessionRow>(pool, 'SELECT * FROM class_sessions WHERE date = $1 AND class_id = ANY($2)', [dateKey(), classes.map((c) => c.id)])
+    : [];
+
   // Children of the parents in this response.
   const parentIds = users.filter((u) => u.role === 'parent').map((u) => u.id);
   const family = parentIds.length
@@ -147,5 +167,8 @@ stateRoutes.get('/state', async (req, res) => {
     settings: { maxAbsences: settings?.max_absences ?? 5 },
     daysOff: daysOff.map((d) => ({ date: d.date, reason: d.reason ?? undefined })),
     cancellations: cancellations.map((c) => ({ classId: c.class_id, date: c.date, reason: c.reason ?? undefined })),
+    sessions: sessions.map(toSession),
+    teacherContacts: teacherContacts.map((t) => ({ classId: t.class_id, name: t.name, email: t.email ?? undefined })),
+    nextLoginIds: auth.role === 'admin' ? await nextLoginIds(pool) : undefined,
   });
 });

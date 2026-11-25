@@ -106,12 +106,7 @@
             <li [class.cancelled]="k.cancelled">
               <div class="class-info">
                 <strong>{{ k.schoolClass.name }}</strong>
-                <span class="muted">
-                  {{ k.schoolClass.startTime }}–{{ k.schoolClass.endTime }} · {{ k.students }} student(s)
-                  @if (k.teachers) {
-                    · {{ k.teachers }}
-                  }
-                </span>
+                <span class="muted">{{ k.schoolClass.startTime }}–{{ k.schoolClass.endTime }}</span>
               </div>
               @if (!selectedOff()) {
                 @if (k.cancelled) {

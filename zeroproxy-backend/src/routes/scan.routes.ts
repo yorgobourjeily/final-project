@@ -2,7 +2,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { RequestHandler, Router } from 'express';
 import { requireAuth } from '../auth';
 import { config } from '../config';
-import { one, pool, transaction } from '../db';
+import { one, pool, rows, transaction } from '../db';
+import { FACE_EMBEDDING_SIZE, FACE_MATCH_THRESHOLD, normalizedEmbedding } from '../faces';
 import { addLog, alertFamily, classForArrival, dayOff, dayOffText, isLoginIdFor, lateCutoff, saveRecord, statusForTime } from '../logic';
 import { AttendanceRow, ClassRow, UserRow } from '../types';
 import { clock, dateKey, HttpError, toMinutes } from '../utils';
@@ -35,6 +36,63 @@ const cameraOrAdmin: RequestHandler = async (req, res, next) => {
   }
   next();
 };
+
+interface FaceCandidate extends UserRow {
+  embedding: number[];
+}
+
+async function matchFace(value: unknown): Promise<{ student: UserRow; similarity: number }> {
+  const embedding = normalizedEmbedding(value);
+  const candidates = await rows<FaceCandidate>(
+    pool,
+    `SELECT u.*, f.embedding
+     FROM face_embeddings f
+     JOIN users u ON u.id = f.student_id
+     WHERE u.role = 'student'`,
+  );
+  if (candidates.length === 0) throw new HttpError(404, 'No student face templates have been enrolled.');
+
+  let best: FaceCandidate | undefined;
+  let bestSimilarity = -1;
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate.embedding) || candidate.embedding.length !== FACE_EMBEDDING_SIZE) continue;
+    const storedMagnitude = Math.hypot(...candidate.embedding);
+    if (storedMagnitude < 1e-12) continue;
+    const dot = embedding.reduce((sum, value, index) => sum + value * candidate.embedding[index], 0);
+    const similarity = dot / storedMagnitude;
+    if (similarity > bestSimilarity) {
+      best = candidate;
+      bestSimilarity = similarity;
+    }
+  }
+  if (!best || bestSimilarity < FACE_MATCH_THRESHOLD) throw new HttpError(404, 'No enrolled student face matched.');
+
+  const { embedding: _embedding, ...student } = best;
+  return { student, similarity: bestSimilarity };
+}
+
+/** Enrolls or replaces a student's averaged face embedding. */
+scanRoutes.post('/face-enrollments', cameraOrAdmin, async (req, res) => {
+  const body = req.body ?? {};
+  const rawId: unknown = body.id ?? body.studentId;
+  const studentId = typeof rawId === 'number' ? String(rawId) : typeof rawId === 'string' ? rawId.trim() : '';
+  if (!isLoginIdFor('student', studentId)) {
+    throw new HttpError(400, 'Send the numeric student login ID in "id".');
+  }
+
+  const student = await one<UserRow>(pool, "SELECT * FROM users WHERE role = 'student' AND login_id = $1", [studentId]);
+  if (!student) throw new HttpError(404, `No student has the id "${studentId}".`);
+  const embedding = normalizedEmbedding(body.embedding);
+  await pool.query(
+    `INSERT INTO face_embeddings (student_id, embedding, model)
+     VALUES ($1, $2::jsonb, 'buffalo_l')
+     ON CONFLICT (student_id) DO UPDATE
+     SET embedding = EXCLUDED.embedding, model = EXCLUDED.model, updated_at = now()`,
+    [student.id, JSON.stringify(embedding)],
+  );
+  await addLog(pool, 'info', `Face template enrolled for ${student.name} (${student.login_id})`);
+  res.status(201).json({ student: { name: student.name, id: student.login_id }, message: `Face template saved for ${student.name}.` });
+});
 
 /**
  * The arrival time sent by the camera: "08:05", "08:05:30" (today) or a full ISO date-time.
@@ -69,16 +127,28 @@ function reply(student: UserRow, schoolClass: ClassRow, record: Pick<AttendanceR
   };
 }
 
+/** GET /api/scan-status -> whether any class is running, which is when the camera machine scans faces. */
+scanRoutes.get('/scan-status', cameraOrAdmin, async (_req, res) => {
+  const running = await rows<{ name: string }>(
+    pool,
+    `SELECT c.name FROM class_sessions s JOIN classes c ON c.id = s.class_id
+     WHERE s.date = $1 AND s.ended_at IS NULL ORDER BY c.name`,
+    [dateKey()],
+  );
+  res.json({ scanning: running.length > 0, classes: running.map((c) => c.name) });
+});
+
 /**
- * POST /api/scans   { "id": "2", "time": "08:05" }
- * Sent by the camera machine when it recognises a student's face: the student id and time of arrival.
- * The scan counts for the student's earliest class today that has not ended and is not marked yet.
- * The arrival time is compared with that class's cutoff (start time + late minutes):
- * present or late is saved, and parents are messaged when late.
+ * POST /api/scans   { "id": "2", "time": "08:05" } or { "embedding": [...], "time": "08:05" }
+ * The camera may send an enrolled student ID or a live face embedding for database matching.
+ * The scan counts for the student's earliest running class (started by a teacher) not marked yet.
+ * The arrival time is compared with that class's cutoff (start time, or the real start if later,
+ * plus the late minutes): present or late is saved, and parents are messaged when late.
  */
 scanRoutes.post('/scans', cameraOrAdmin, async (req, res) => {
   const body = req.body ?? {};
-  const rawId: unknown = body.id ?? body.studentId;
+  const match = body.embedding === undefined ? undefined : await matchFace(body.embedding);
+  const rawId: unknown = match?.student.login_id ?? body.id ?? body.studentId;
   const studentId = typeof rawId === 'number' ? String(rawId) : typeof rawId === 'string' ? rawId.trim() : '';
   if (!isLoginIdFor('student', studentId)) {
     throw new HttpError(400, 'Send the student id as numbers only, for example { "id": "2", "time": "08:05" }.');
@@ -89,7 +159,7 @@ scanRoutes.post('/scans', cameraOrAdmin, async (req, res) => {
   if (dateKey(arrival) !== dateKey()) throw new HttpError(400, 'The time of arrival must be today.');
   if (arrival.getTime() > Date.now() + 60_000) throw new HttpError(400, 'The time of arrival cannot be in the future.');
 
-  const student = await one<UserRow>(pool, "SELECT * FROM users WHERE role = 'student' AND login_id = $1", [studentId]);
+  const student = match?.student ?? (await one<UserRow>(pool, "SELECT * FROM users WHERE role = 'student' AND login_id = $1", [studentId]));
   if (!student) {
     await addLog(pool, 'warning', `Camera scan for unknown student id "${studentId}"`);
     throw new HttpError(404, `No student has the id "${studentId}".`);
@@ -102,7 +172,7 @@ scanRoutes.post('/scans', cameraOrAdmin, async (req, res) => {
   if (off) throw new HttpError(400, `No school on ${date} (${dayOffText(off)}). Attendance is not taken.`);
 
   // Which of the student's classes this arrival is for.
-  const { classes, target, alreadyMarked } = await classForArrival(pool, student.id, date, time);
+  const { classes, target, alreadyMarked } = await classForArrival(pool, student.id, date);
   if (classes.length === 0) throw new HttpError(400, `${student.name} is not in a class yet.`);
   if (!target && alreadyMarked) {
     const schoolClass = classes.find((c) => c.id === alreadyMarked.class_id)!;
@@ -113,7 +183,7 @@ scanRoutes.post('/scans', cameraOrAdmin, async (req, res) => {
     });
     return;
   }
-  if (!target) throw new HttpError(400, `${student.name} has no class still running at ${time} today.`);
+  if (!target) throw new HttpError(400, `${student.name} has no class running at ${time}: a teacher must start it first.`);
   const schoolClass = target;
 
   // Compare the arrival time with the class cutoff. A scan also replaces an automatic absence.

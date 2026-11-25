@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AuthService } from '../../auth.service';
 import { DataService, SheetEntry } from '../../data.service';
-import { NewClass, Status } from '../../models';
+import { Status } from '../../models';
 import { dateKey, dayPlural, daysText } from '../../utils';
 import { AttendanceSummary } from '../../shared/attendance-summary/attendance-summary';
 import { AttendanceTable } from '../../shared/attendance-table/attendance-table';
@@ -11,11 +11,6 @@ import { TeacherCalendar } from './teacher-calendar/teacher-calendar';
 import { tabInUrl } from '../../tab-state';
 
 const TABS = ['sheet', 'history', 'calendar', 'alerts'] as const;
-
-/** An unsaved change on the sheet: an arrival time, or a chosen status. */
-type Draft = { time: string } | { status: Status };
-
-type ClassTimes = Partial<Pick<NewClass, 'startTime' | 'endTime' | 'lateAfterMinutes'>>;
 
 @Component({
   selector: 'app-teacher',
@@ -38,10 +33,13 @@ export class Teacher {
   protected readonly saving = signal(false);
   protected readonly historyOf = signal<string | null>(null);
   private readonly chosenClassId = signal<string | null>(null);
+  protected readonly sessionBusy = signal(false);
+  protected readonly sessionError = signal('');
+  /** The teacher pressed End class and is being asked to confirm. */
+  protected readonly confirmingEnd = signal(false);
 
-  /** Unsaved sheet changes by student id, and unsaved class time changes. Sent on Submit. */
-  private readonly drafts = signal<Record<string, Draft>>({});
-  private readonly timesDraft = signal<ClassTimes>({});
+  /** Unsaved status changes by student id. Sent on Submit. */
+  private readonly drafts = signal<Record<string, Status>>({});
 
   /** Classes this teacher teaches. */
   protected readonly myClasses = computed(() => this.data.classesOfTeacher(this.user()?.id ?? ''));
@@ -50,19 +48,21 @@ export class Teacher {
     const classes = this.myClasses();
     return classes.find((c) => c.id === this.chosenClassId()) ?? classes[0];
   });
-  /** The current class with unsaved time changes applied, to preview present/late. */
-  protected readonly editedClass = computed(() => {
-    const c = this.currentClass();
-    return c ? { ...c, ...this.timesDraft() } : undefined;
-  });
   protected readonly classStudents = computed(() => {
     const c = this.currentClass();
     return c ? this.data.studentsIn(c.id) : [];
   });
+  /** Whether the current class takes place today, so it can be started. */
+  protected readonly hasClassToday = computed(() => {
+    const c = this.currentClass();
+    return !!c && this.data.hasClassOn(c, this.today);
+  });
+  /** Today's session of the current class, if it was started. */
+  protected readonly session = computed(() => this.data.session(this.currentClass()?.id ?? ''));
 
   protected readonly maxAbsences = computed(() => this.currentClass()?.maxAbsences ?? this.data.settings().maxAbsences);
   protected readonly lateAfter = computed(() => {
-    const c = this.editedClass();
+    const c = this.currentClass();
     return c ? this.data.lateCutoff(c) : '';
   });
 
@@ -84,29 +84,19 @@ export class Teacher {
   protected readonly sheet = computed(() => {
     const date = this.date();
     const drafts = this.drafts();
-    const cls = this.editedClass();
+    const classId = this.currentClass()?.id;
     if (!this.meetsOnDate()) return []; // no class that day, so nobody to mark
-    const records = this.data.records().filter((r) => r.classId === cls?.id && r.date === date);
+    const records = this.data.records().filter((r) => r.classId === classId && r.date === date);
     return this.classStudents().map((student) => {
       const record = records.find((r) => r.studentId === student.id);
       const draft = drafts[student.id];
-      let status: Status | undefined = record?.status;
-      let time = record?.time ?? '';
-      if (draft && 'time' in draft) {
-        time = draft.time;
-        status = this.data.statusForTime(cls, draft.time);
-      } else if (draft) {
-        status = draft.status;
-        if (status === 'absent') time = '';
-      }
-      return { student, record, status, time, changed: !!draft };
+      const status: Status | undefined = draft ?? record?.status;
+      return { student, record, status, changed: !!draft };
     });
   });
 
   protected readonly unmarkedCount = computed(() => this.sheet().filter((r) => !r.status).length);
-  protected readonly changeCount = computed(
-    () => Object.keys(this.drafts()).length + (Object.keys(this.timesDraft()).length ? 1 : 0),
-  );
+  protected readonly changeCount = computed(() => Object.keys(this.drafts()).length);
   protected readonly canSubmit = computed(() => this.changeCount() > 0 || this.unmarkedCount() > 0);
 
   /** Totals per student, in this class only. */
@@ -134,7 +124,7 @@ export class Teacher {
   private readonly closedDays = new Set<string>();
 
   constructor() {
-    // Unmarked students on past days count as absent. (For today, the server does it after the late cutoff.)
+    // Unmarked students on past days count as absent. (For today, the server does it when the class ends.)
     effect(() => {
       const date = this.date();
       const classId = this.currentClassId();
@@ -151,7 +141,26 @@ export class Teacher {
   protected onClass(event: Event) {
     this.chosenClassId.set((event.target as HTMLSelectElement).value);
     this.historyOf.set(null);
+    this.confirmingEnd.set(false);
+    this.sessionError.set('');
     this.clearFeedback();
+  }
+
+  // ------------------------------------------------------------ running the class
+
+  protected startClass(classId: string) {
+    return this.changeSession(() => this.data.startClass(classId));
+  }
+
+  protected endClass(classId: string) {
+    return this.changeSession(() => this.data.endClass(classId));
+  }
+
+  private async changeSession(change: () => Promise<string | null>) {
+    this.sessionBusy.set(true);
+    this.sessionError.set((await change()) ?? '');
+    this.confirmingEnd.set(false);
+    this.sessionBusy.set(false);
   }
 
   protected onDate(event: Event) {
@@ -165,25 +174,7 @@ export class Teacher {
   protected onStatus(studentId: string, event: Event) {
     const status = (event.target as HTMLSelectElement).value as Status;
     const saved = this.savedRecord(studentId)?.status;
-    this.setDraft(studentId, status === saved ? null : { status });
-  }
-
-  protected onTime(studentId: string, event: Event) {
-    const time = (event.target as HTMLInputElement).value;
-    if (!time) return;
-    const saved = this.savedRecord(studentId);
-    const unchanged = saved?.time === time && saved.status === this.data.statusForTime(this.editedClass(), time);
-    this.setDraft(studentId, unchanged ? null : { time });
-  }
-
-  protected onClassTime(field: 'startTime' | 'endTime', event: Event) {
-    const value = (event.target as HTMLInputElement).value;
-    if (value) this.setTimesDraft(field, value);
-  }
-
-  protected onLateMinutes(event: Event) {
-    const minutes = Number((event.target as HTMLInputElement).value);
-    if (Number.isFinite(minutes) && minutes >= 0) this.setTimesDraft('lateAfterMinutes', Math.round(minutes));
+    this.setDraft(studentId, status === saved ? null : status);
   }
 
   /** The saved record of a student in this class on the selected day. */
@@ -192,7 +183,7 @@ export class Teacher {
     return classId ? this.data.recordOn(studentId, classId, this.date()) : undefined;
   }
 
-  private setDraft(studentId: string, draft: Draft | null) {
+  private setDraft(studentId: string, draft: Status | null) {
     this.drafts.update((all) => {
       const next = { ...all };
       if (draft) next[studentId] = draft;
@@ -202,39 +193,18 @@ export class Teacher {
     this.clearFeedback();
   }
 
-  private setTimesDraft<K extends keyof ClassTimes>(field: K, value: NonNullable<ClassTimes[K]>) {
-    const saved = this.currentClass()?.[field];
-    this.timesDraft.update((t) => {
-      const next = { ...t };
-      if (value === saved) delete next[field];
-      else next[field] = value;
-      return next;
-    });
-    this.clearFeedback();
-  }
-
   // ------------------------------------------------------------ submit
 
-  /** Saves the class times and the whole sheet. Students still not marked are saved as absent. */
+  /** Saves the whole sheet. Students still not marked are saved as absent. */
   protected async submit() {
     const c = this.currentClass();
     if (!c || !this.canSubmit() || this.saving()) return;
     this.saving.set(true);
     this.clearFeedback();
 
-    const times = this.timesDraft();
-    if (Object.keys(times).length) {
-      const error = await this.data.updateClass(c.id, times);
-      if (error) return this.failSubmit(error);
-      this.timesDraft.set({});
-    }
-
     const entries: SheetEntry[] = this.sheet()
       .filter((row) => row.changed || !row.status)
-      .map((row) => {
-        const draft = this.drafts()[row.student.id];
-        return draft ? { studentId: row.student.id, ...draft } : { studentId: row.student.id, status: 'absent' as const };
-      });
+      .map((row) => ({ studentId: row.student.id, status: this.drafts()[row.student.id] ?? 'absent' }));
     const flagged = this.sheet().filter((row) => (row.changed || !row.status) && row.status !== 'present').length;
 
     if (entries.length) {
@@ -252,7 +222,6 @@ export class Teacher {
 
   protected discard() {
     this.drafts.set({});
-    this.timesDraft.set({});
     this.clearFeedback();
     this.message.set('Changes discarded.');
   }

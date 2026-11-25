@@ -16,6 +16,16 @@
             <small class="muted">
               {{ c.days }} · {{ c.schoolClass.startTime }}–{{ c.schoolClass.endTime }} · late after {{ c.lateAfter }}
             </small>
+            @for (t of c.teachers; track $index) {
+              <small class="teacher">
+                Teacher: {{ t.name }}
+                @if (t.email) {
+                  · <a [href]="'mailto:' + t.email">{{ t.email }}</a>
+                } @else {
+                  <span class="muted">· no email</span>
+                }
+              </small>
+            }
           </span>
           <span class="today-status">
             @if (c.meetsToday) {
@@ -30,6 +40,11 @@
         </li>
       }
     </ul>
+  </section>
+
+  <section class="section">
+    <h2>Calendar</h2>
+    <app-teacher-calendar [classes]="calendarClasses()" />
   </section>
 
   <section class="section card flush">

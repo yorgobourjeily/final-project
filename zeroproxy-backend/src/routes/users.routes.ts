@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { me, requireRole } from '../auth';
 import { one, pool, transaction } from '../db';
+import { normalizedEmbedding } from '../faces';
 import {
   addLog,
   childIdsOf,
@@ -19,14 +20,18 @@ const ROLES: Role[] = ['admin', 'teacher', 'parent', 'student'];
 const optional = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
 /**
- * POST /api/users  (admin) creates an account. Its ID is generated: the lowest free one for the role
- * (each role counts up from 1: students 1…, parents p1…, teachers t1…, admins a1…), so IDs of deleted accounts are reused.
+ * POST /api/users  (admin) creates an account. Its ID is generated: each role counts up from 1
+ * (students 1…, parents p1…, teachers t1…, admins a1…) and IDs of deleted accounts are never reused.
  */
 userRoutes.post('/users', requireRole('admin'), async (req, res) => {
-  const { name, password, role, email, phone, childIds, classIds } = req.body ?? {};
+  const { name, password, role, email, phone, childIds, classIds, faceEmbedding: rawFaceEmbedding } = req.body ?? {};
   if (typeof name !== 'string' || !name.trim()) throw new HttpError(400, 'Enter the full name.');
   if (typeof password !== 'string' || password.length < 6) throw new HttpError(400, 'The password needs at least 6 characters.');
   if (!ROLES.includes(role)) throw new HttpError(400, 'Choose a valid role.');
+  if (rawFaceEmbedding !== undefined && role !== 'student') {
+    throw new HttpError(400, 'Face templates can only be attached to student accounts.');
+  }
+  const faceEmbedding = rawFaceEmbedding === undefined ? undefined : normalizedEmbedding(rawFaceEmbedding);
 
   const children: UserRow[] = [];
   if (role === 'parent') {
@@ -57,6 +62,13 @@ userRoutes.post('/users', requireRole('admin'), async (req, res) => {
       'INSERT INTO users (id, name, login_id, password_hash, role, email, phone) VALUES ($1, $2, $3, $4, $5, $6, $7)',
       [id, name.trim(), login, passwordHash, role, optional(email), optional(phone)],
     );
+    if (faceEmbedding) {
+      await db.query(
+        `INSERT INTO face_embeddings (student_id, embedding, model)
+         VALUES ($1, $2::jsonb, 'buffalo_l')`,
+        [id, JSON.stringify(faceEmbedding)],
+      );
+    }
     for (const child of children) {
       await db.query('INSERT INTO parent_children (parent_id, student_id) VALUES ($1, $2)', [id, child.id]);
     }
@@ -68,12 +80,33 @@ userRoutes.post('/users', requireRole('admin'), async (req, res) => {
   res.status(201).json(toUser((await getUser(pool, id))!, role === 'parent' ? children.map((c) => c.id) : classes));
 });
 
-/** DELETE /api/users/:id  (admin) deletes an account and its attendance and notifications. */
+/** PostgreSQL pattern matching `text` as a whole word, so removing "Ali" leaves "Alia" alone. */
+const wholeWord = (text: string) => `(?<!\\w)${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`;
+
+/**
+ * DELETE /api/users/:id  (admin) deletes an account and everything about it. The database removes its
+ * class places, attendance, face template, parent links and notifications (ON DELETE CASCADE). Text that
+ * only names the person is cleaned here: alerts sent to parents and teachers are removed, and the logs
+ * keep their entries with the person's details replaced.
+ */
 userRoutes.delete('/users/:id', requireRole('admin'), async (req, res) => {
   if (param(req.params.id) === me(req).id) throw new HttpError(400, 'You cannot delete your own account.');
-  const user = await one<UserRow>(pool, 'DELETE FROM users WHERE id = $1 RETURNING *', [param(req.params.id)]);
-  if (!user) throw new HttpError(404, 'Account not found.');
-  await addLog(pool, 'warning', `Account deleted: ${user.name} (${user.role})`);
+  await transaction(async (db) => {
+    const user = await one<UserRow>(db, 'DELETE FROM users WHERE id = $1 RETURNING *', [param(req.params.id)]);
+    if (!user) throw new HttpError(404, 'Account not found.');
+    if (user.role === 'student') {
+      await db.query(
+        `DELETE FROM notifications
+         WHERE (kind IN ('late', 'absent') AND starts_with(message, $1)) OR (kind = 'limit' AND starts_with(message, $2))`,
+        [`${user.name} was marked `, `${user.name} has `],
+      );
+    }
+    for (const detail of [user.name, user.email, user.phone]) {
+      if (!detail) continue;
+      await db.query(`UPDATE logs SET message = regexp_replace(message, $1, '[deleted user]', 'g') WHERE message ~ $1`, [wholeWord(detail)]);
+    }
+    await addLog(db, 'warning', `Account deleted: [deleted user] (${user.role})`);
+  });
   res.status(204).end();
 });
 

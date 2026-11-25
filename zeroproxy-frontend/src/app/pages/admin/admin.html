@@ -4,13 +4,13 @@
 </header>
 
 <nav class="tabs" aria-label="Admin sections">
-  <button type="button" [class.active]="tab() === 'users'" (click)="tab.set('users')">User accounts</button>
-  <button type="button" [class.active]="tab() === 'create'" (click)="tab.set('create')">Create account</button>
-  <button type="button" [class.active]="tab() === 'classes'" (click)="tab.set('classes')">Classes</button>
-  <button type="button" [class.active]="tab() === 'calendar'" (click)="tab.set('calendar')">Calendar</button>
-  <button type="button" [class.active]="tab() === 'parents'" (click)="tab.set('parents')">Parent links</button>
-  <button type="button" [class.active]="tab() === 'scanner'" (click)="tab.set('scanner')">Camera scanner</button>
-  <button type="button" [class.active]="tab() === 'system'" (click)="tab.set('system')">
+  <button type="button" [class.active]="tab() === 'users'" (click)="selectTab('users')">User accounts</button>
+  <button type="button" [class.active]="tab() === 'create'" (click)="selectTab('create')">Create account</button>
+  <button type="button" [class.active]="tab() === 'classes'" (click)="selectTab('classes')">Classes</button>
+  <button type="button" [class.active]="tab() === 'calendar'" (click)="selectTab('calendar')">Calendar</button>
+  <button type="button" [class.active]="tab() === 'parents'" (click)="selectTab('parents')">Parent links</button>
+  <button type="button" [class.active]="tab() === 'email'" (click)="selectTab('email')">Send email</button>
+  <button type="button" [class.active]="tab() === 'system'" (click)="selectTab('system')">
     System
     @if (errorCount() > 0) {
       <span class="tab-count">{{ errorCount() }}</span>
@@ -155,11 +155,11 @@
         <div class="form-grid">
           <label>
             Full name
-            <input formControlName="name" />
+            <input formControlName="name" (input)="onNameInput()" />
           </label>
           <label>
             Role
-            <select formControlName="role">
+            <select formControlName="role" (change)="onRoleChange()">
               @for (r of roles; track r) {
                 <option [value]="r">{{ roleLabels[r] }}</option>
               }
@@ -194,6 +194,79 @@
                 }
               </select>
             </label>
+            <section class="face-capture" aria-labelledby="face-capture-title">
+              <div>
+                <h3 id="face-capture-title">Student face</h3>
+                <p class="muted">A face template is required for camera attendance. The photo is not stored.</p>
+              </div>
+              @if (faceEmbedding()) {
+                <div class="face-done">
+                  <div class="face-thumbs">
+                    @for (shot of faceShots(); track $index) {
+                      <figure>
+                        <img class="face-thumb" [src]="shot.photo" [alt]="facePoses[$index].label + ' photo'" />
+                        <figcaption>{{ facePoses[$index].label }}</figcaption>
+                      </figure>
+                    }
+                  </div>
+                  <div>
+                    <p class="form-success" role="status">Front and side photos encoded and ready to save with this student.</p>
+                    <button type="button" class="btn" (click)="retakeFace()">Retake photos</button>
+                  </div>
+                </div>
+              } @else {
+                <div class="face-actions">
+                  <button type="button" class="btn camera-btn" (click)="openCamera()">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                      <path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/>
+                    </svg>
+                    {{ faceShots().length ? 'Continue face photos (' + faceShots().length + '/' + facePoses.length + ')' : 'Take face photos' }}
+                  </button>
+                </div>
+              }
+              @if (faceError() && !cameraActive()) {
+                <p class="form-error" role="alert">{{ faceError() }}</p>
+              }
+            </section>
+
+            <!-- Camera popup: always in the DOM so the video element exists when the stream starts. -->
+            <div class="modal-backdrop" [hidden]="!cameraActive()" (click)="!faceBusy() && stopCamera()">
+              <div class="card modal camera-modal" role="dialog" aria-modal="true" aria-labelledby="camera-title" (click)="$event.stopPropagation()">
+                <h2 id="camera-title">Take the student's face photos</h2>
+                <ol class="pose-steps">
+                  @for (pose of facePoses; track pose.key; let i = $index) {
+                    <li [class.done]="i < faceShots().length" [class.current]="i === faceShots().length">
+                      @if (faceShots()[i]; as shot) {
+                        <img [src]="shot.photo" alt="" />
+                      } @else {
+                        <span class="pose-num">{{ i + 1 }}</span>
+                      }
+                      {{ pose.label }}
+                    </li>
+                  }
+                </ol>
+                <p class="pose-hint" aria-live="polite">
+                  <strong>{{ faceShots().length + 1 }}/{{ facePoses.length }} · {{ currentPose().label }}:</strong>
+                  {{ currentPose().hint }}
+                </p>
+                <div class="camera-frame">
+                  <video #faceVideo class="face-preview" autoplay playsinline muted aria-label="Student camera preview"></video>
+                  <div class="face-guide" [attr.data-pose]="currentPose().key" aria-hidden="true"></div>
+                </div>
+                @if (faceError()) {
+                  <p class="form-error" role="alert">{{ faceError() }}</p>
+                }
+                <div class="face-actions">
+                  <button type="button" class="btn primary" [disabled]="faceBusy()" (click)="captureFace()">
+                    {{ faceBusy() ? 'Encoding face…' : 'Capture ' + currentPose().label.toLowerCase() }}
+                  </button>
+                  @if (faceShots().length) {
+                    <button type="button" class="btn" [disabled]="faceBusy()" (click)="redoLastShot()">Redo previous</button>
+                  }
+                  <button type="button" class="btn" [disabled]="faceBusy()" (click)="stopCamera()">Cancel</button>
+                </div>
+              </div>
+            </div>
           }
         </div>
         @if (form.controls.role.value === 'teacher') {
@@ -326,7 +399,7 @@
       @if (classDraft(); as d) {
         <!-- Edit window: details change on Save; teachers and students change straight away. -->
         <div class="modal-backdrop" (keydown.escape)="cancelEdit()">
-          <section class="card modal" role="dialog" aria-modal="true" [attr.aria-label]="'Edit ' + c.name">
+          <section class="card modal brand-scroll" role="dialog" aria-modal="true" [attr.aria-label]="'Edit ' + c.name">
             <div class="class-head">
               <label class="class-name">
                 <span class="sr-only">Class name</span>
@@ -388,7 +461,7 @@
             <div class="two-col">
               <div>
                 <h3>Teachers ({{ c.teacherIds.length }})</h3>
-                <ul class="people modal-list">
+                <ul class="people modal-list brand-scroll">
                   @for (t of teachersOf(c); track t.id) {
                     <li>
                       <span><strong class="child-id">{{ t.teacherNumber }}</strong> {{ t.name }}</span>
@@ -401,6 +474,7 @@
                 <div class="add-row">
                   @if (teachersNotIn(c).length > 0) {
                     <app-student-search
+                      class="up"
                       label="Add a teacher"
                       [people]="teachersNotIn(c)"
                       [clearOnPick]="true"
@@ -419,7 +493,7 @@
 
               <div>
                 <h3>Students ({{ data.studentsIn(c.id).length }})</h3>
-                <ul class="people modal-list">
+                <ul class="people modal-list brand-scroll">
                   @for (s of data.studentsIn(c.id); track s.id) {
                     <li>
                       <span><strong class="child-id">{{ s.studentNumber }}</strong> {{ s.name }}</span>
@@ -432,6 +506,7 @@
                 <div class="add-row">
                   @if (studentsNotIn(c).length > 0) {
                     <app-student-search
+                      class="up"
                       label="Add a student"
                       [people]="studentsNotIn(c)"
                       [clearOnPick]="true"
@@ -534,89 +609,108 @@
     </section>
   }
 
-  @case ('scanner') {
-    <div class="two-col">
-      <section class="card">
-        <h2>Test a scan</h2>
-        <p class="muted">Sends exactly what the camera machine sends when it recognises a face.</p>
-        <div class="stack">
-          <app-student-search label="Student ID" [people]="data.students()" [(value)]="scanId" />
-          <label>
-            Time of arrival
-            <input type="time" [value]="scanTime()" (input)="scanTime.set(inputValue($event))" />
-          </label>
-          @if (scanPreview(); as p) {
-            <p class="preview">
-              @if (p.status) {
-                Counts for <strong>{{ p.className }}</strong> (late after <strong>{{ p.lateAfter }}</strong>),
-                so {{ scanTime() }} should be
-                <span class="badge" [attr.data-status]="p.status">{{ p.status }}</span>
-              } @else {
-                No class still running at {{ scanTime() }} that this student isn't already marked for.
-              }
-            </p>
-          }
-          <div>
-            <span class="add-label">The machine sends</span>
-            <pre class="code">{{ scanPayload() }}</pre>
-          </div>
-          <button type="button" class="btn primary" [disabled]="scanBusy() || !scanId() || !scanTime()" (click)="sendScan()">
-            {{ scanBusy() ? 'Sending…' : 'Send scan' }}
-          </button>
+  @case ('email') {
+    <div class="email-layout">
+      <section class="card email-compose">
+        <h2>Write the email</h2>
+        <label>
+          Subject
+          <input [value]="emailSubject()" (input)="emailSubject.set(inputValue($event))" maxlength="200" />
+        </label>
+        <label>
+          Message
+          <textarea rows="10" [value]="emailMessage()" (input)="emailMessage.set(inputValue($event))"></textarea>
+        </label>
+        @if (emailError()) {
+          <p class="form-error" role="alert">{{ emailError() }}</p>
+        }
+        @if (emailSuccess()) {
+          <p class="form-success" role="status">{{ emailSuccess() }}</p>
+        }
+        <button type="button" class="btn primary" [disabled]="emailBusy()" (click)="sendEmail()">
+          {{ emailBusy() ? 'Sending…' : 'Send to ' + emailTo().size + ' person(s)' }}
+        </button>
+      </section>
+
+      <section class="card flush">
+        <div class="toolbar">
+          <input
+            class="user-search"
+            type="search"
+            [value]="emailSearch()"
+            (input)="emailSearch.set(inputValue($event))"
+            placeholder="Search name, exact ID or email"
+            aria-label="Search people to email by name, exact ID or email"
+            autocomplete="off"
+          />
+          <select (change)="onEmailRole($event)" aria-label="Show role">
+            <option value="all">All roles</option>
+            @for (r of roles; track r) {
+              <option [value]="r" [selected]="emailRole() === r">{{ roleLabels[r] }}s</option>
+            }
+          </select>
+          <input
+            class="user-search"
+            type="search"
+            list="email-class-list"
+            [value]="emailClassSearch()"
+            (input)="emailClassSearch.set(inputValue($event))"
+            placeholder="Search class"
+            aria-label="Search class: shows its students, teachers and parents"
+            title="Students, teachers and parents of the matching classes"
+            autocomplete="off"
+          />
+          <datalist id="email-class-list">
+            @for (c of data.classes(); track c.id) {
+              <option [value]="c.name"></option>
+            }
+          </datalist>
         </div>
-        @if (scanError()) {
-          <p class="form-error section-sm" role="alert">{{ scanError() }}</p>
-        }
-        @if (scanResult(); as r) {
-          <p class="form-success section-sm" role="status">{{ r.message }}</p>
-          <pre class="code">{{ scanResultJson() }}</pre>
-        }
-      </section>
-
-      <section class="card">
-        <h2>Connect the camera machine</h2>
-        <p>When the camera recognises a student's face, the machine sends their id and time of arrival:</p>
-        <pre class="code">{{ machineRequest }}</pre>
-        <p class="muted">
-          <code>time</code> can be <code>"08:05"</code>, <code>"08:05:30"</code> or a full date-time, and must be today.
-          The backend compares it with the student's class: after <em>start time + late minutes</em> it is late.
-        </p>
-        <ul class="list">
-          <li><strong>201</strong>: saved; the reply has <code>status</code> (present/late), <code>lateAfter</code> and <code>minutesLate</code>. Late = parents messaged.</li>
-          <li><strong>200</strong> with <code>alreadyMarked: true</code>: the student was already marked today.</li>
-          <li><strong>400</strong>: missing/invalid id or time. <strong>404</strong>: no student has that id.</li>
-          <li><strong>401</strong>: wrong or missing device key.</li>
-        </ul>
-        <p class="muted">
-          To test from a terminal: <code>npm run scan -- 2 08:05</code> in <code>zeroproxy-backend</code>.
-        </p>
-      </section>
-    </div>
-
-    <section class="section card flush">
-      <h2 class="pad">Today's camera scans</h2>
-      @if (todayScans().length === 0) {
-        <p class="empty">No faces recognised yet today.</p>
-      } @else {
-        <div class="table-wrap">
+        <div class="table-wrap accounts-scroll">
           <table>
-            <thead><tr><th>Arrived</th><th>Student</th><th>Student ID</th><th>Class</th><th>Late after</th><th>Status</th></tr></thead>
+            <thead>
+              <tr>
+                <th class="check-cell">
+                  <input
+                    type="checkbox"
+                    [checked]="allShownTicked()"
+                    (change)="toggleAllShown()"
+                    aria-label="Tick everyone shown"
+                    title="Tick everyone shown"
+                  />
+                </th>
+                <th>Name</th><th>Role</th><th>Email</th>
+              </tr>
+            </thead>
             <tbody>
-              @for (s of todayScans(); track s.record.id) {
+              @for (u of emailPeople(); track u.id) {
+                <tr [class.no-email]="!u.email" (click)="u.email && toggleRecipient(u.id)">
+                  <td class="check-cell">
+                    <input
+                      type="checkbox"
+                      [checked]="emailTo().has(u.id)"
+                      [disabled]="!u.email"
+                      (click)="$event.stopPropagation()"
+                      (change)="toggleRecipient(u.id)"
+                      [attr.aria-label]="'Email ' + u.name"
+                    />
+                  </td>
+                  <td>{{ u.name }} <span class="muted">({{ u.loginId }})</span></td>
+                  <td><span class="chip">{{ roleLabels[u.role] }}</span></td>
+                  <td class="muted">{{ u.email || 'No email address' }}</td>
+                </tr>
+              } @empty {
                 <tr>
-                  <td>{{ s.record.time }}</td>
-                  <td>{{ s.student?.name }}</td>
-                  <td>{{ s.student?.studentNumber }}</td>
-                  <td class="muted">{{ s.schoolClass?.name }}</td>
-                  <td class="muted">{{ s.lateAfter }}</td>
-                  <td><span class="badge" [attr.data-status]="s.record.status">{{ s.record.status }}</span></td>
+                  <td colspan="4" class="muted">
+                    {{ emailClasses()?.length === 0 ? 'No class matches "' + emailClassSearch().trim() + '".' : 'Nobody matches.' }}
+                  </td>
                 </tr>
               }
             </tbody>
           </table>
         </div>
-      }
-    </section>
+      </section>
+    </div>
   }
 
   @case ('system') {
@@ -629,25 +723,46 @@
       }
     </div>
 
+    <section class="section card camera-view">
+      <div class="camera-view-head">
+        <div>
+          <h2>Live camera</h2>
+          <p class="muted">See what the classroom cameras see, on the computer running the live scanner. Nothing is recorded.</p>
+        </div>
+        @if (cameraViews().length) {
+          <button type="button" class="btn" (click)="closeCameraView()">Close camera</button>
+        } @else {
+          <button type="button" class="btn primary" [disabled]="cameraViewBusy()" (click)="openCameraView()">
+            {{ cameraViewBusy() ? 'Connecting…' : 'View camera' }}
+          </button>
+        }
+      </div>
+      @if (cameraViewError()) {
+        <p class="form-error" role="alert">{{ cameraViewError() }}</p>
+      }
+      @if (cameraViews().length) {
+        <div class="camera-view-grid">
+          @for (camera of cameraViews(); track camera.url) {
+            <figure>
+              <img [src]="camera.url" [alt]="'Live view of camera ' + camera.name" (error)="onCameraViewLost()" />
+              <figcaption>Camera {{ camera.name }}</figcaption>
+            </figure>
+          }
+        </div>
+      }
+    </section>
+
     <div class="section">
       <section class="card">
         <p class="muted">Start and end times, the late limit and maximum absences are set for each class in the Classes tab.</p>
         <h2>Security &amp; privacy</h2>
         <ul class="list">
           <li>Every portal requires a login and only shows data for that role.</li>
-          <li>Camera frames are processed on the device and never stored. Only the attendance result is saved.</li>
+          <li>Camera images are processed on the device and never stored. Face templates and attendance records are saved.</li>
           <li>Parents can only see their own child's records.</li>
           <li>Teachers only see the classes they are assigned to.</li>
           <li>Only admins can create or delete accounts and classes.</li>
         </ul>
-        <h3 class="section-sm">Demo data</h3>
-        <p class="muted">Restores the sample users, classes and attendance history. All changes are lost.</p>
-        @if (confirmReset()) {
-          <button type="button" class="btn danger" (click)="reset()">Yes, reset everything</button>
-          <button type="button" class="btn" (click)="confirmReset.set(false)">Cancel</button>
-        } @else {
-          <button type="button" class="btn" (click)="confirmReset.set(true)">Reset demo data</button>
-        }
       </section>
     </div>
 

@@ -26,7 +26,7 @@ export class App {
   });
 
   constructor() {
-    // If the logged-in account disappears (deleted, or demo data reset), go back to login.
+    // If the logged-in account disappears, go back to login.
     effect(() => {
       if (!this.user() && !this.router.url.startsWith('/login')) this.router.navigateByUrl('/login');
     });

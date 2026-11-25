@@ -30,6 +30,13 @@ CREATE TABLE IF NOT EXISTS users (
   phone          text
 );
 
+CREATE TABLE IF NOT EXISTS face_embeddings (
+  student_id  text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  embedding   jsonb NOT NULL CHECK (jsonb_typeof(embedding) = 'array' AND jsonb_array_length(embedding) = 512),
+  model       text NOT NULL DEFAULT 'buffalo_l',
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- Databases from before login IDs: students/teachers keep their student/teacher number as their ID.
 -- Anyone else is given a new ID on startup (see backfillLoginIds).
 DO $$
@@ -126,6 +133,16 @@ CREATE TABLE IF NOT EXISTS class_cancellations (
   PRIMARY KEY (class_id, date)
 );
 
+-- One class running on one date: the teacher pressed Start, and End sets ended_at.
+-- Cameras take attendance only in between. Times are HH:mm.
+CREATE TABLE IF NOT EXISTS class_sessions (
+  class_id    text NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  date        date NOT NULL,
+  started_at  text NOT NULL,
+  ended_at    text,
+  PRIMARY KEY (class_id, date)
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id          text PRIMARY KEY,
   user_id     text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -136,10 +153,36 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, created_at DESC);
 
+-- Emails to students and parents waiting to be sent. Each row is deleted once it is sent, or given up on.
+CREATE TABLE IF NOT EXISTS email_outbox (
+  id            bigserial PRIMARY KEY,
+  recipient_id  text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject       text NOT NULL,
+  body          text NOT NULL,
+  attempts      int  NOT NULL DEFAULT 0
+);
+-- Emails the admin writes are not about one student, so student_id can be empty.
+ALTER TABLE email_outbox ALTER COLUMN student_id DROP NOT NULL;
+
+-- The late/absent status the family was already emailed about, so ending a class twice does not repeat it.
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS emailed_status text;
+
 CREATE TABLE IF NOT EXISTS logs (
   id       bigserial PRIMARY KEY,
   at       timestamptz NOT NULL DEFAULT now(),
   level    text NOT NULL CHECK (level IN ('info', 'warning', 'error')),
   message  text NOT NULL
 );
+
+-- The last ID number handed out for each role. It only goes up, so IDs of deleted accounts are never reused.
+CREATE TABLE IF NOT EXISTS login_id_counters (
+  role         text PRIMARY KEY CHECK (role IN ('admin', 'teacher', 'parent', 'student')),
+  last_number  bigint NOT NULL
+);
+INSERT INTO login_id_counters (role, last_number)
+  SELECT role, max(substring(login_id from '[0-9]+$')::bigint) FROM users
+  WHERE login_id ~ '^[a-z]?[0-9]{1,12}$'
+  GROUP BY role
+ON CONFLICT (role) DO UPDATE SET last_number = GREATEST(login_id_counters.last_number, EXCLUDED.last_number);
 `;

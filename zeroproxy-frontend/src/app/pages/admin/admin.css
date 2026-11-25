@@ -4,13 +4,6 @@
 .add-row { border-top: 1px solid var(--border); padding-top: 0.9rem; display: grid; gap: 0.3rem; }
 .add-row p { margin: 0; }
 .add-label { font-size: 0.88rem; font-weight: 500; }
-.add-control { display: flex; gap: 0.5rem; }
-.add-control select { flex: 1; }
-.add-btn { white-space: nowrap; }
-.code {
-  margin: 0.3rem 0 0; padding: 0.75rem 0.9rem; background: #0d1b2e; color: #dbe7f5; border-radius: 8px;
-  font-size: 0.82rem; overflow-x: auto; white-space: pre;
-}
 .generated-id { background: var(--bg); color: var(--navy); font-weight: 600; cursor: default; }
 .generated-id:focus { outline: none; }
 .preview { margin: 0; padding: 0.6rem 0.8rem; background: var(--bg); border-radius: 8px; font-size: 0.9rem; }
@@ -44,7 +37,48 @@
 .actions-cell .btn + .btn { margin-left: 0.35rem; }
 .form-card { max-width: 760px; }
 .form-grid { display: grid; gap: 0.9rem 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); margin-bottom: 1rem; }
-.stack { display: grid; gap: 0.9rem; }
+.face-capture { grid-column: 1 / -1; display: grid; gap: 0.65rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.face-capture h3 { margin-bottom: 0.2rem; }
+.face-capture p { margin-bottom: 0; }
+.face-preview { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #17212b; border-radius: 8px; transform: scaleX(-1); }
+.modal-backdrop[hidden] { display: none; }
+.camera-modal { width: min(560px, 100%); display: grid; gap: 0.75rem; }
+.camera-modal h2, .camera-modal p { margin: 0; }
+.camera-frame { position: relative; }
+.face-guide {
+  position: absolute; left: 50%; top: 50%; width: 42%; aspect-ratio: 3 / 4; transform: translate(-50%, -50%);
+  border: 3px dashed rgb(255 255 255 / 0.75); border-radius: 50%; pointer-events: none;
+}
+/* The oval leans toward the side the student should turn to (the preview is mirrored). */
+.face-guide { transition: transform 0.25s ease, left 0.25s ease; }
+.face-guide[data-pose='left'] { left: 42%; transform: translate(-50%, -50%) rotate(-8deg); }
+.face-guide[data-pose='right'] { left: 58%; transform: translate(-50%, -50%) rotate(8deg); }
+.pose-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pose-steps li {
+  display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.7rem 0.25rem 0.3rem; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted); font-size: 0.85rem;
+}
+.pose-steps li.current { border-color: var(--navy); color: var(--navy); font-weight: 600; }
+.pose-steps li.done { color: inherit; }
+.pose-steps img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; transform: scaleX(-1); }
+.pose-num { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--bg); font-size: 0.8rem; }
+.pose-steps li.current .pose-num { background: var(--navy); color: #fff; }
+.pose-hint { padding: 0.55rem 0.8rem; background: var(--bg); border-radius: 8px; }
+.face-thumbs { display: flex; gap: 0.6rem; }
+.face-thumbs figure { margin: 0; text-align: center; }
+.face-thumbs figcaption { font-size: 0.78rem; color: var(--muted); }
+.camera-btn { display: inline-flex; align-items: center; gap: 0.45rem; }
+.camera-view { display: grid; gap: 0.75rem; }
+.camera-view-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.camera-view-head h2, .camera-view-head p, .camera-view .form-error { margin: 0; }
+.camera-view-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 0.75rem; }
+.camera-view-grid figure { margin: 0; min-width: 0; }
+.camera-view-grid img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #17212b; border-radius: 8px; }
+.camera-view-grid figcaption { margin-top: 0.3rem; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.face-done { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.face-done p { margin: 0 0 0.5rem; }
+.face-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; transform: scaleX(-1); border: 2px solid var(--border); }
+.face-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .section-sm { margin-top: 1.5rem; }
 .pad { padding: 1.25rem 1.25rem 0; }
 .log { max-height: 420px; overflow-y: auto; }
@@ -79,3 +113,12 @@ tr.viewing td { background: var(--navy-soft); }
 .modal { width: min(900px, 100%); max-height: calc(100vh - 2rem); overflow-y: auto; box-shadow: 0 20px 50px rgb(0 0 0 / 0.3); }
 .modal-list { max-height: 240px; overflow-y: auto; padding-right: 0.5rem; }
 .modal .form-error, .modal .form-success { margin: 0 0 1rem; }
+/* Send email tab: message on the left, people to tick on the right. */
+.email-layout { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); align-items: start; }
+.email-compose { display: grid; gap: 0.9rem; }
+.email-compose h2, .email-compose p { margin: 0; }
+.email-compose textarea { width: 100%; resize: vertical; font: inherit; }
+.check-cell { width: 2.5rem; text-align: center; }
+.check-cell input { width: 1.1rem; height: 1.1rem; cursor: pointer; }
+tbody tr:not(.no-email):has(.check-cell) { cursor: pointer; }
+tr.no-email td { opacity: 0.55; }

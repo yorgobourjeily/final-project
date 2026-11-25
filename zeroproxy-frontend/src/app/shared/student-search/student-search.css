@@ -10,6 +10,8 @@
   box-shadow: 0 8px 24px rgb(0 45 91 / 0.12); max-height: 280px; overflow-y: auto;
 }
 :host(.inline) .matches { position: static; box-shadow: none; }
+/* Near the bottom of a window: opens above the input, so it is not cut off. */
+:host(.up) .matches { top: auto; bottom: 100%; margin: 0 0 0.25rem; }
 .matches li { margin: 0; }
 .match {
   all: unset; box-sizing: border-box; width: 100%; cursor: pointer;

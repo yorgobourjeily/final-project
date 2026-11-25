@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { me, requireRole } from '../auth';
-import { pool } from '../db';
+import { config } from '../config';
+import { pool, rows } from '../db';
+import { sendPendingEmails } from '../email';
 import { addLog, getUser } from '../logic';
-import { seedDemoData } from '../seed';
 import { LogLevel } from '../types';
 import { HttpError } from '../utils';
 
@@ -38,8 +39,39 @@ miscRoutes.post('/logs', async (req, res) => {
   res.status(204).end();
 });
 
-/** POST /api/admin/reset  (admin) deletes everything and reloads the demo data. */
-miscRoutes.post('/admin/reset', requireRole('admin'), async (_req, res) => {
-  await seedDemoData();
-  res.status(204).end();
+/**
+ * POST /api/emails  (admin)  { recipientIds, subject, message }  emails the admin's own message to the chosen accounts.
+ * Accounts without an email address are skipped and named in the reply: { queued, skipped }.
+ */
+miscRoutes.post('/emails', requireRole('admin'), async (req, res) => {
+  const { recipientIds, subject, message } = req.body ?? {};
+  if (!config.smtp.host) throw new HttpError(400, 'Email is not set up. Fill in the SMTP settings in zeroproxy-backend/.env.');
+  if (!Array.isArray(recipientIds) || recipientIds.length === 0 || !recipientIds.every((id) => typeof id === 'string')) {
+    throw new HttpError(400, 'Choose at least one person.');
+  }
+  if (typeof subject !== 'string' || !subject.trim()) throw new HttpError(400, 'Write a subject.');
+  if (typeof message !== 'string' || !message.trim()) throw new HttpError(400, 'Write a message.');
+
+  const recipients = await rows<{ id: string; name: string; email: string | null }>(
+    pool,
+    'SELECT id, name, email FROM users WHERE id = ANY($1::text[]) ORDER BY name',
+    [recipientIds],
+  );
+  const withEmail = recipients.filter((r) => r.email?.trim());
+  const skipped = recipients.filter((r) => !r.email?.trim()).map((r) => r.name);
+
+  for (const r of withEmail) {
+    await pool.query('INSERT INTO email_outbox (recipient_id, subject, body) VALUES ($1, $2, $3)', [
+      r.id,
+      subject.trim().slice(0, 200),
+      `${message.trim().slice(0, 10_000)}\n\nZeroProxy`,
+    ]);
+  }
+  const admin = await getUser(pool, me(req).id);
+  await addLog(pool, 'info', `[${admin?.login_id}] queued email "${subject.trim()}" to ${withEmail.length} person(s)`);
+
+  // Send straight away instead of waiting for the next 15-second round.
+  sendPendingEmails().catch((err) => console.error('Sending emails failed:', err));
+  res.json({ queued: withEmail.length, skipped });
 });
+

@@ -1,28 +1,10 @@
 import { computed, Injectable, signal } from '@angular/core';
 import { api, ApiError, session } from './api';
-import { AttendanceRecord, ClassCancellation, DayOff, Db, LogLevel, NewClass, NewUser, Role, SchoolClass, Status, User } from './models';
+import { AttendanceRecord, ClassCancellation, ClassSession, DayOff, Db, LogLevel, NewClass, NewUser, Role, SchoolClass, Status, TeacherContact, User } from './models';
 import { addMinutes, toMinutes, weekdayOf } from './utils';
 
-/** What the server answers to a camera scan. */
-export interface ScanReply {
-  student: { name: string; id: string; class: string };
-  date: string;
-  /** Arrival time (HH:mm). */
-  time: string;
-  /** Arrivals after this time count as late. */
-  lateAfter: string;
-  minutesLate: number;
-  status: Status;
-  alreadyMarked: boolean;
-  message: string;
-}
-
 /** One row of a submitted attendance sheet. */
-export type SheetEntry = { studentId: string } & ({ status: Status } | { time: string });
-
-/** Account IDs: students digits only, teachers t…, parents p…, admins a… (see nextLoginId). */
-const ID_PREFIX: Record<Role, string> = { student: '', teacher: 't', parent: 'p', admin: 'a' };
-const ID_START: Record<Role, number> = { student: 1, parent: 1, teacher: 1, admin: 1 };
+export type SheetEntry = { studentId: string; status: Status };
 
 const EMPTY: Db = { users: [], classes: [], records: [], notifications: [], logs: [], settings: { maxAbsences: 5 }, daysOff: [], cancellations: [] };
 
@@ -124,36 +106,47 @@ export class DataService {
     return this.notifications().filter((n) => n.userId === userId);
   }
 
-  /**
-   * The ID the next new account of this role will get (same rule as the server): the lowest free number
-   * from 1 for the role, so IDs of deleted accounts are reused. Students 1…, parents p1…,
-   * teachers t1…, admins a1….
-   */
+  /** The ID the next new account of this role will get, as told by the server (admins only). */
   nextLoginId(role: Role): string {
-    const prefix = ID_PREFIX[role];
-    const used = new Set(
-      this.users()
-        .filter((u) => u.role === role && new RegExp(`^${prefix}\\d+$`).test(u.loginId))
-        .map((u) => Number(u.loginId.slice(prefix.length))),
-    );
-    let n = ID_START[role];
-    while (used.has(n)) n++;
-    return `${prefix}${n}`;
+    return this.db().nextLoginIds?.[role] ?? '';
   }
 
   private startOf(classId: string): string {
     return this.schoolClass(classId)?.startTime ?? '';
   }
 
+  /** The teachers of a class, for students and parents to contact. */
+  teacherContacts(classId: string): TeacherContact[] {
+    return this.db().teacherContacts?.filter((t) => t.classId === classId) ?? [];
+  }
+
+  /** Today's session of a class, if a teacher started it. */
+  session(classId: string): ClassSession | undefined {
+    return this.db().sessions?.find((s) => s.classId === classId);
+  }
+
+  /** Whether a teacher has started this class and it has not ended, so the cameras are taking attendance. */
+  isRunning(classId: string): boolean {
+    const session = this.session(classId);
+    return !!session && !session.endedAt;
+  }
+
+  /** The class with its start moved to when the teacher really started it, if later (same rule as the server). */
+  asStarted(schoolClass: SchoolClass): SchoolClass {
+    const startedAt = this.session(schoolClass.id)?.startedAt;
+    return startedAt && toMinutes(startedAt) > toMinutes(schoolClass.startTime) ? { ...schoolClass, startTime: startedAt } : schoolClass;
+  }
+
   /**
-   * Which class a camera scan at `time` today counts for (same rule as the server): the student's
-   * earliest class that has not ended and that they are not marked for yet.
+   * Which class a camera scan today counts for (same rule as the server): the student's
+   * earliest running class that they are not marked for yet.
    */
-  classForArrival(studentId: string, date: string, time: string): SchoolClass | undefined {
+  classForArrival(studentId: string, date: string): SchoolClass | undefined {
     const marked = this.records().filter((r) => r.studentId === studentId && r.date === date && r.method !== 'auto');
-    return this.classesOf(studentId).find(
-      (c) => this.hasClassOn(c, date) && toMinutes(time) < toMinutes(c.endTime) && !marked.some((r) => r.classId === c.id),
+    const target = this.classesOf(studentId).find(
+      (c) => this.isRunning(c.id) && this.hasClassOn(c, date) && !marked.some((r) => r.classId === c.id),
     );
+    return target && this.asStarted(target);
   }
 
   /** Whether the class's weekly schedule includes that date's weekday (YYYY-MM-DD). */
@@ -191,18 +184,7 @@ export class DataService {
   // Each returns an error message, or null on success.
 
   /**
-   * Admin test: sends a scan exactly like the camera machine ({ id, time }).
-   * Returns the server's reply, or throws with its error message.
-   */
-  async testScan(id: string, time: string): Promise<ScanReply> {
-    const reply = await this.request<ScanReply>('POST', '/scans', { id, time });
-    await this.load();
-    return reply;
-  }
-
-  /**
-   * Teacher submits a class's attendance sheet for one day. Each entry is a status, or an
-   * arrival time (present or late is worked out from the class times). Saved all together.
+   * Teacher submits a class's attendance sheet for one day: a status for each changed student. Saved all together.
    */
   submitAttendance(classId: string, date: string, entries: SheetEntry[]) {
     return this.mutate('PUT', `/classes/${classId}/attendance/${date}`, { entries });
@@ -210,6 +192,16 @@ export class DataService {
 
   markUnmarkedAbsent(classId: string, date: string) {
     return this.mutate('POST', `/classes/${classId}/mark-absent`, { date });
+  }
+
+  /** Starts today's class: the cameras begin taking attendance. */
+  startClass(classId: string) {
+    return this.mutate('POST', `/classes/${classId}/session/start`);
+  }
+
+  /** Ends today's class: students not seen are marked absent. */
+  endClass(classId: string) {
+    return this.mutate('POST', `/classes/${classId}/session/end`);
   }
 
   createClass(input: NewClass) {
@@ -289,8 +281,15 @@ export class DataService {
     return this.mutate('DELETE', `/days-off/${date}`);
   }
 
-  resetDemoData() {
-    return this.mutate('POST', '/admin/reset');
+  /** Admin emails their own message to the chosen accounts. Returns how many were queued and who has no email. */
+  async sendEmail(recipientIds: string[], subject: string, message: string): Promise<{ error: string | null; queued: number; skipped: string[] }> {
+    try {
+      const reply = await this.request<{ queued: number; skipped: string[] }>('POST', '/emails', { recipientIds, subject, message });
+      this.load().catch(() => undefined);
+      return { error: null, ...reply };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Something went wrong.', queued: 0, skipped: [] };
+    }
   }
 
   /** Reports a warning or error to the admin's log. Never throws. */

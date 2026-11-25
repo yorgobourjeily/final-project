@@ -20,7 +20,7 @@
     [attr.aria-expanded]="open()"
   />
   @if (open()) {
-    <ul class="matches" [id]="listId" role="listbox" aria-label="Matching accounts">
+    <ul class="matches brand-scroll" [id]="listId" role="listbox" aria-label="Matching accounts">
       @for (s of matches(); track s.id) {
         <li role="option" [attr.aria-selected]="s.loginId === typed()">
           <button

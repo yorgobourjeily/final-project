@@ -17,4 +17,12 @@ export const config = {
     password: process.env.PGPASSWORD ?? '',
     database: process.env.PGDATABASE ?? 'zeroproxy',
   },
+  /** Mail server for emailing parents. No email is sent while `host` is empty. */
+  smtp: {
+    host: process.env.SMTP_HOST ?? '',
+    port: Number(process.env.SMTP_PORT || 587),
+    user: process.env.SMTP_USER ?? '',
+    password: process.env.SMTP_PASSWORD ?? '',
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  },
 };

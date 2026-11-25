@@ -15,10 +15,9 @@ import {
   markUnmarkedAbsent,
   meetsOn,
   saveRecord,
-  statusForTime,
 } from '../logic';
 import { AttendanceRow, ClassRow, Status, UserRow } from '../types';
-import { clock, dateKey, HttpError, isDate, isTime, param } from '../utils';
+import { clock, dateKey, HttpError, isDate, param } from '../utils';
 
 export const attendanceRoutes = Router();
 
@@ -34,10 +33,9 @@ function validDay(date: unknown): string {
   return date;
 }
 
-/** One teacher change: an arrival time (present/late is worked out) or a status. */
+/** One teacher change: a status. Arrival times come from the camera and cannot be edited. */
 interface Entry {
   status?: unknown;
-  time?: unknown;
 }
 
 /**
@@ -51,18 +49,6 @@ async function applyEntry(db: Queryable, student: UserRow, schoolClass: ClassRow
     date,
   ]);
   const record = { studentId: student.id, classId: schoolClass.id, date, method: 'manual' as const };
-
-  if (entry.time !== undefined && entry.time !== null && entry.time !== '') {
-    if (!isTime(entry.time)) throw new HttpError(400, `Enter ${student.name}'s arrival time as HH:mm.`);
-    const time = entry.time;
-    const status = statusForTime(schoolClass, time);
-    if (previous?.time !== time || previous.status !== status) {
-      await saveRecord(db, { ...record, status, time });
-      await addLog(db, 'info', `Teacher set arrival of ${student.name} in ${schoolClass.name} to ${time} on ${date} (${status})`);
-      if (status === 'late' && previous?.status !== 'late') await alertFamily(db, student.id, schoolClass.id, 'late', date, time);
-    }
-    return status;
-  }
 
   if (!['present', 'late', 'absent'].includes(entry.status as string)) {
     throw new HttpError(400, `Status for ${student.name} must be present, late or absent.`);
@@ -79,7 +65,7 @@ async function applyEntry(db: Queryable, student: UserRow, schoolClass: ClassRow
 }
 
 /**
- * PUT /api/classes/:id/attendance/:date  { entries: [{ studentId, status } | { studentId, time }] }
+ * PUT /api/classes/:id/attendance/:date  { entries: [{ studentId, status }] }
  * Teacher submits the attendance sheet of one class for one day. All changes are saved together, or none.
  */
 attendanceRoutes.put('/classes/:id/attendance/:date', requireRole('teacher', 'admin'), async (req, res) => {

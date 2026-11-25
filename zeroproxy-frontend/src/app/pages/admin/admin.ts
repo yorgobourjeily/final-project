@@ -1,22 +1,60 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../auth.service';
-import { DataService, ScanReply } from '../../data.service';
+import { DataService } from '../../data.service';
 import { NewClass, Role, ROLE_LABELS, SchoolClass, User } from '../../models';
-import { clock, dateKey, daysText, WEEK_DAYS } from '../../utils';
+import { dateKey, daysText, WEEK_DAYS } from '../../utils';
 import { tabInUrl } from '../../tab-state';
 import { StudentSearch } from '../../shared/student-search/student-search';
 import { DaysOffCalendar } from './days-off-calendar/days-off-calendar';
 
-const TABS = ['users', 'create', 'classes', 'calendar', 'parents', 'scanner', 'system'] as const;
+/** The photos the camera popup takes, in order. Their face codes are averaged into one template. */
+const FACE_POSES = [
+  { key: 'front', label: 'Front', hint: 'Look straight at the camera.' },
+  { key: 'left', label: 'Left side', hint: 'Turn your head slightly to your left (about 30°), eyes still visible.' },
+  { key: 'right', label: 'Right side', hint: 'Turn your head slightly to your right (about 30°), eyes still visible.' },
+] as const;
 
-/** Shown in the Camera scanner tab: what the camera machine must send. */
-const MACHINE_REQUEST = `POST http://<server>:3000/api/scans
-Content-Type: application/json
-X-Device-Key: <DEVICE_KEY from zeroproxy-backend/.env>
+interface FaceShot {
+  embedding: number[];
+  photo: string;
+  /** Head turn reported by the encoder, in degrees (sign = direction). */
+  yaw: number | null;
+}
 
-{ "id": "2", "time": "08:05" }`;
+/** Front must face the camera; each side must be turned, and the two sides in opposite directions. */
+function checkPose(pose: (typeof FACE_POSES)[number]['key'], yaw: number, shots: FaceShot[]): string | null {
+  if (pose === 'front') return Math.abs(yaw) <= 20 ? null : 'Look straight at the camera for the front photo.';
+  if (Math.abs(yaw) < 12) return 'Turn the head a little more to the side, then capture again.';
+  const otherSide = shots.find((_, i) => FACE_POSES[i].key !== 'front' && FACE_POSES[i].key !== pose);
+  if (otherSide?.yaw != null && Math.sign(otherSide.yaw) === Math.sign(yaw)) {
+    return 'That is the same side as before. Turn the head the other way.';
+  }
+  return null;
+}
+
+/** Average of several unit-length face codes, scaled back to unit length. */
+function averageEmbedding(embeddings: number[][]): number[] {
+  const sum = embeddings[0].map((_, i) => embeddings.reduce((total, e) => total + e[i], 0));
+  const magnitude = Math.hypot(...sum);
+  return sum.map((v) => v / magnitude);
+}
+
+/** A small JPEG data URL of the captured frame, for the form preview. */
+function thumbnail(source: HTMLCanvasElement): string {
+  const size = 160;
+  const side = Math.min(source.width, source.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  canvas.getContext('2d')?.drawImage(source, (source.width - side) / 2, (source.height - side) / 2, side, side, 0, 0, size, size);
+  return canvas.toDataURL('image/jpeg', 0.8);
+}
+
+const TABS = ['users', 'create', 'classes', 'calendar', 'parents', 'email', 'system'] as const;
+
+/** Where the live scanner (face_live.py live) shows its cameras, on this computer only. */
+const CAMERA_VIEW_URL = 'http://localhost:8766';
 
 @Component({
   selector: 'app-admin',
@@ -25,10 +63,12 @@ X-Device-Key: <DEVICE_KEY from zeroproxy-backend/.env>
   templateUrl: './admin.html',
   styleUrl: './admin.css',
 })
-export class Admin {
+export class Admin implements OnDestroy {
   protected readonly data = inject(DataService);
   protected readonly me = inject(AuthService).user;
   private readonly fb = inject(NonNullableFormBuilder);
+  @ViewChild('faceVideo') private faceVideo?: ElementRef<HTMLVideoElement>;
+  private cameraStream: MediaStream | null = null;
 
   protected readonly roles: Role[] = ['student', 'parent', 'teacher', 'admin'];
   protected readonly roleLabels = ROLE_LABELS;
@@ -42,6 +82,15 @@ export class Admin {
   protected readonly formError = signal('');
   protected readonly userError = signal('');
   protected readonly formSuccess = signal('');
+  protected readonly faceEmbedding = signal<number[] | null>(null);
+  /** Photos taken so far in the camera popup (previews stay in the browser; only face codes are sent). */
+  protected readonly faceShots = signal<FaceShot[]>([]);
+  protected readonly facePoses = FACE_POSES;
+  /** The pose the popup is asking for now. */
+  protected readonly currentPose = computed(() => FACE_POSES[Math.min(this.faceShots().length, FACE_POSES.length - 1)]);
+  protected readonly cameraActive = signal(false);
+  protected readonly faceBusy = signal(false);
+  protected readonly faceError = signal('');
   protected readonly classError = signal('');
   protected readonly classMessage = signal('');
   protected readonly parentMessage = signal('');
@@ -56,36 +105,11 @@ export class Admin {
         this.data.childrenOf(p.id).some((s) => s.studentNumber?.includes(q) || s.name.toLowerCase().includes(q)),
     );
   });
-  protected readonly confirmReset = signal(false);
-
-  // Camera scanner tab
-  protected readonly machineRequest = MACHINE_REQUEST;
-  protected readonly scanId = signal('');
-  protected readonly scanTime = signal(clock());
-  protected readonly scanBusy = signal(false);
-  protected readonly scanError = signal('');
-  protected readonly scanResult = signal<ScanReply | null>(null);
-  protected readonly scanPayload = computed(() =>
-    JSON.stringify({ id: this.scanId().trim(), time: this.scanTime() }, null, 2),
-  );
-  /** The student whose ID is typed in exactly. */
-  protected readonly scanStudent = computed(() => this.data.students().find((s) => s.studentNumber === this.scanId().trim()));
-  /**
-   * Frontend's own check before sending (same rules as the server): which class the arrival counts
-   * for, and whether the time is before or after that class's cutoff.
-   */
-  protected readonly scanPreview = computed(() => {
-    const student = this.scanStudent();
-    if (!student || !this.scanTime()) return null;
-    const schoolClass = this.data.classForArrival(student.id, dateKey(), this.scanTime());
-    if (!schoolClass) return { className: '', lateAfter: '', status: null };
-    return {
-      className: schoolClass.name,
-      lateAfter: this.data.lateCutoff(schoolClass),
-      status: this.data.statusForTime(schoolClass, this.scanTime()),
-    };
-  });
-  protected readonly scanResultJson = computed(() => JSON.stringify(this.scanResult(), null, 2));
+  // System tab: live camera view
+  /** The live cameras being shown; empty while the view is closed. */
+  protected readonly cameraViews = signal<{ name: string; url: string }[]>([]);
+  protected readonly cameraViewBusy = signal(false);
+  protected readonly cameraViewError = signal('');
   /** Today's attendance recorded by the camera, newest first. */
   protected readonly todayScans = computed(() => {
     const today = dateKey();
@@ -122,6 +146,37 @@ export class Admin {
 
   protected toggleView(userId: string) {
     this.viewingUserId.update((id) => (id === userId ? null : userId));
+  }
+
+  protected selectTab(tab: (typeof TABS)[number]) {
+    if (tab !== 'create') this.stopCamera();
+    if (tab !== 'system') this.closeCameraView();
+    this.tab.set(tab);
+  }
+
+  /** Asks the live scanner which cameras it has, and shows them. */
+  protected async openCameraView() {
+    this.cameraViewBusy.set(true);
+    this.cameraViewError.set('');
+    try {
+      const response = await fetch(`${CAMERA_VIEW_URL}/cameras`);
+      if (!response.ok) throw new Error();
+      const { cameras } = (await response.json()) as { cameras: { name: string }[] };
+      this.cameraViews.set(cameras.map((camera, index) => ({ name: camera.name, url: `${CAMERA_VIEW_URL}/stream/${index}` })));
+    } catch {
+      this.cameraViewError.set('The live scanner is not running on this computer. Start it with "python face_live.py live", then try again.');
+    } finally {
+      this.cameraViewBusy.set(false);
+    }
+  }
+
+  protected closeCameraView() {
+    this.cameraViews.set([]);
+  }
+
+  protected onCameraViewLost() {
+    this.closeCameraView();
+    this.cameraViewError.set('The camera view stopped. Check that the live scanner is still running, then try again.');
   }
 
   protected readonly userSearch = signal('');
@@ -196,6 +251,7 @@ export class Admin {
 
   /** Opens the Create account tab with the role already chosen. */
   protected startCreate(role: Role) {
+    this.resetFaceCapture();
     this.form.reset();
     this.form.controls.role.setValue(role);
     this.childSearch.set('');
@@ -217,6 +273,10 @@ export class Admin {
       return;
     }
     const v = this.form.getRawValue();
+    if (v.role === 'student' && !this.faceEmbedding()) {
+      this.formError.set('Capture the student face before creating the account.');
+      return;
+    }
     // The child is the student whose ID is typed in (or picked) in the search box.
     const child = this.data.students().find((s) => s.loginId === this.childSearch().trim().toLowerCase());
     if (v.role === 'parent' && !child) {
@@ -232,6 +292,7 @@ export class Admin {
       phone: v.phone || undefined,
       childIds: v.role === 'parent' && child ? [child.id] : undefined,
       classIds: v.role === 'student' && v.classId ? [v.classId] : undefined,
+      faceEmbedding: v.role === 'student' ? (this.faceEmbedding() ?? undefined) : undefined,
     });
     if (error) {
       this.formError.set(error);
@@ -239,8 +300,126 @@ export class Admin {
     }
     this.formError.set('');
     this.formSuccess.set(`Account for ${v.name} created. They sign in with ID ${user?.loginId} and the password you chose.`);
+    this.resetFaceCapture();
     this.form.reset();
     this.childSearch.set('');
+  }
+
+  protected async openCamera() {
+    this.faceError.set('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.faceError.set('Camera access is unavailable in this browser or page context.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      this.cameraStream = stream;
+      this.cameraActive.set(true);
+      const video = this.faceVideo?.nativeElement;
+      if (!video) throw new Error('Camera preview is not ready.');
+      video.srcObject = stream;
+      await video.play();
+    } catch (error) {
+      this.stopCamera();
+      this.faceError.set(error instanceof Error ? error.message : 'Could not open the camera.');
+    }
+  }
+
+  protected async captureFace() {
+    const video = this.faceVideo?.nativeElement;
+    if (!video?.videoWidth || !video.videoHeight) {
+      this.faceError.set('Wait for the camera preview, then try again.');
+      return;
+    }
+    this.faceBusy.set(true);
+    this.faceError.set('');
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d')?.drawImage(video, 0, 0);
+      const image = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+      if (!image) throw new Error('Could not capture an image from the camera.');
+      const response = await fetch('http://localhost:8765/encode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: image,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Could not encode the captured face.');
+      if (!Array.isArray(result.embedding) || result.embedding.length !== 512) {
+        throw new Error('The local encoder returned an invalid face template.');
+      }
+      const yaw = typeof result.yaw === 'number' ? result.yaw : null;
+      const poseError = yaw === null ? null : checkPose(this.currentPose().key, yaw, this.faceShots());
+      if (poseError) throw new Error(poseError);
+      const shots = [...this.faceShots(), { embedding: result.embedding as number[], photo: thumbnail(canvas), yaw }];
+      this.faceShots.set(shots);
+      if (shots.length === FACE_POSES.length) {
+        this.faceEmbedding.set(averageEmbedding(shots.map((s) => s.embedding)));
+        this.stopCamera();
+      }
+    } catch (error) {
+      this.faceError.set(
+        error instanceof TypeError
+          ? 'Face encoder is unavailable. Start the local face encoder service and retry.'
+          : error instanceof Error
+            ? error.message
+            : 'Could not encode the captured face.',
+      );
+    } finally {
+      this.faceBusy.set(false);
+    }
+  }
+
+  protected onRoleChange() {
+    this.resetFaceCapture();
+  }
+
+  protected onNameInput() {
+    if (this.faceEmbedding()) {
+      this.faceEmbedding.set(null);
+      this.faceShots.set([]);
+      this.faceError.set('Name changed. Capture the face again before creating this account.');
+    }
+  }
+
+  protected stopCamera() {
+    this.cameraStream?.getTracks().forEach((track) => track.stop());
+    this.cameraStream = null;
+    this.cameraActive.set(false);
+    if (this.faceVideo?.nativeElement) this.faceVideo.nativeElement.srcObject = null;
+  }
+
+  protected async retakeFace() {
+    this.faceEmbedding.set(null);
+    this.faceShots.set([]);
+    this.faceError.set('');
+    await this.openCamera();
+  }
+
+  /** Drops the last photo so that pose can be taken again. */
+  protected redoLastShot() {
+    this.faceShots.update((shots) => shots.slice(0, -1));
+    this.faceError.set('');
+  }
+
+  /** Escape closes the camera popup (unless a photo is being encoded). */
+  @HostListener('document:keydown.escape')
+  protected onEscape() {
+    if (this.cameraActive() && !this.faceBusy()) this.stopCamera();
+  }
+
+  private resetFaceCapture() {
+    this.stopCamera();
+    this.faceEmbedding.set(null);
+    this.faceShots.set([]);
+    this.faceError.set('');
+    this.faceBusy.set(false);
+  }
+
+  ngOnDestroy() {
+    this.stopCamera();
   }
 
   /** Create account: the child's student ID typed into the search box (parents only). */
@@ -410,30 +589,107 @@ export class Admin {
     this.parentMessage.set(error ?? `${parent.name} is no longer linked to ${student.name}.`);
   }
 
-  // ------------------------------------------------------------ camera scanner
+  // ------------------------------------------------------------ send email
+
+  protected readonly emailSubject = signal('');
+  protected readonly emailMessage = signal('');
+  protected readonly emailSearch = signal('');
+  protected readonly emailRole = signal<Role | 'all'>('all');
+  /** Class search: part of a class name. Shows those classes' students, teachers and parents. Empty = every class. */
+  protected readonly emailClassSearch = signal('');
+  /** Classes whose name matches the class search (null when the search is empty). */
+  protected readonly emailClasses = computed(() => {
+    const q = this.emailClassSearch().trim().toLowerCase();
+    return q ? this.data.classes().filter((c) => c.name.toLowerCase().includes(q)) : null;
+  });
+  /** IDs of the people ticked to receive the email. */
+  protected readonly emailTo = signal<ReadonlySet<string>>(new Set());
+  protected readonly emailBusy = signal(false);
+  protected readonly emailError = signal('');
+  protected readonly emailSuccess = signal('');
+
+  /**
+   * People shown in the recipient list: everyone except yourself, filtered by role, class and search.
+   * The search matches part of a name or email, or an exact ID (so "1" does not also show 11 or p1).
+   */
+  protected readonly emailPeople = computed(() => {
+    const role = this.emailRole();
+    const classes = this.emailClasses();
+    const q = this.emailSearch().trim().toLowerCase();
+    return this.data
+      .users()
+      .filter((u) => u.id !== this.me()?.id)
+      .filter((u) => role === 'all' || u.role === role)
+      .filter((u) => !classes || classes.some((c) => this.isInClass(u, c.id)))
+      .filter((u) => !q || u.loginId.toLowerCase() === q || u.name.toLowerCase().includes(q) || !!u.email?.toLowerCase().includes(q));
+  });
+
+  /** A student in the class, a teacher of it, or a parent of one of its students. */
+  private isInClass(u: User, classId: string): boolean {
+    switch (u.role) {
+      case 'student':
+        return !!u.classIds?.includes(classId);
+      case 'teacher':
+        return !!this.data.schoolClass(classId)?.teacherIds.includes(u.id);
+      case 'parent':
+        return this.data.childrenOf(u.id).some((s) => s.classIds?.includes(classId));
+      default:
+        return false;
+    }
+  }
+
+  /** People in the list that can be ticked (they have an email address). */
+  private readonly emailableShown = computed(() => this.emailPeople().filter((u) => !!u.email));
+  protected readonly allShownTicked = computed(
+    () => this.emailableShown().length > 0 && this.emailableShown().every((u) => this.emailTo().has(u.id)),
+  );
+
+  protected toggleRecipient(id: string) {
+    this.emailTo.update((set) => {
+      const next = new Set(set);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Ticks every person shown (or unticks them all when they are already ticked). */
+  protected toggleAllShown() {
+    const shown = this.emailableShown().map((u) => u.id);
+    const untick = this.allShownTicked();
+    this.emailTo.update((set) => {
+      const next = new Set(set);
+      shown.forEach((id) => (untick ? next.delete(id) : next.add(id)));
+      return next;
+    });
+  }
+
+  protected onEmailRole(event: Event) {
+    this.emailRole.set((event.target as HTMLSelectElement).value as Role | 'all');
+  }
+
+  protected async sendEmail() {
+    this.emailError.set('');
+    this.emailSuccess.set('');
+    if (this.emailTo().size === 0) return this.emailError.set('Tick at least one person.');
+    if (!this.emailSubject().trim()) return this.emailError.set('Write a subject.');
+    if (!this.emailMessage().trim()) return this.emailError.set('Write a message.');
+    this.emailBusy.set(true);
+    const { error, queued, skipped } = await this.data.sendEmail([...this.emailTo()], this.emailSubject().trim(), this.emailMessage().trim());
+    this.emailBusy.set(false);
+    if (error) return this.emailError.set(error);
+    this.emailSuccess.set(
+      `Email on its way to ${queued} person(s).` + (skipped.length ? ` Skipped (no email address): ${skipped.join(', ')}.` : '') +
+        ' Check the System log to see each delivery.',
+    );
+    this.emailSubject.set('');
+    this.emailMessage.set('');
+    this.emailTo.set(new Set());
+  }
+
+  // ------------------------------------------------------------ helpers
 
   protected inputValue(event: Event): string {
     return (event.target as HTMLInputElement).value;
-  }
-
-
-  /** Sends the scan exactly like the camera machine would, and shows the server's reply. */
-  protected async sendScan() {
-    this.scanBusy.set(true);
-    this.scanError.set('');
-    this.scanResult.set(null);
-    try {
-      this.scanResult.set(await this.data.testScan(this.scanId().trim(), this.scanTime()));
-    } catch (err) {
-      this.scanError.set(err instanceof Error ? err.message : 'The scan failed.');
-    }
-    this.scanBusy.set(false);
-  }
-
-  // ------------------------------------------------------------ system
-
-  protected async reset() {
-    this.confirmReset.set(false);
-    this.userError.set((await this.data.resetDemoData()) ?? '');
   }
 }

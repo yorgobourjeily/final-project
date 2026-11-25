@@ -23,4 +23,5 @@ export class AttendanceTable {
   readonly records = input.required<AttendanceRecord[]>();
   readonly showStudent = input(false);
   readonly showClass = input(false);
+  readonly showArrival = input(true);
 }

@@ -37,6 +37,13 @@ export interface AttendanceRow {
   method: 'face' | 'manual' | 'auto';
 }
 
+export interface SessionRow {
+  class_id: string;
+  date: string;
+  started_at: string;
+  ended_at: string | null;
+}
+
 export interface NotificationRow {
   id: string;
   user_id: string;
@@ -89,6 +96,13 @@ export const toRecord = (r: AttendanceRow) => ({
   status: r.status,
   time: r.time ?? undefined,
   method: r.method,
+});
+
+export const toSession = (s: SessionRow) => ({
+  classId: s.class_id,
+  date: s.date,
+  startedAt: s.started_at,
+  endedAt: s.ended_at ?? undefined,
 });
 
 export const toNotification = (n: NotificationRow) => ({

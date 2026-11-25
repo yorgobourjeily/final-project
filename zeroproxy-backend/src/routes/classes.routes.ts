@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { me, requireRole } from '../auth';
-import { one, pool, rows } from '../db';
-import { addLog, getClass, getUser } from '../logic';
+import { one, pool, rows, transaction } from '../db';
+import { addLog, dayOff, dayOffText, endSession, getClass, getUser, isCancelled, meetsOn } from '../logic';
 import { ClassRow, toClass } from '../types';
-import { HttpError, isTime, newId, toMinutes, param } from '../utils';
+import { clock, dateKey, HttpError, isTime, newId, toMinutes, param } from '../utils';
 import { assertTeaches } from './attendance.routes';
 
 export const classRoutes = Router();
@@ -65,20 +65,12 @@ classRoutes.post('/classes', requireRole('admin'), async (req, res) => {
   res.status(201).json(await classResponse(id));
 });
 
-/**
- * PATCH /api/classes/:id  (admin: everything; teacher of the class: start/end time and late minutes)
- */
-classRoutes.patch('/classes/:id', requireRole('admin', 'teacher'), async (req, res) => {
-  const auth = me(req);
+/** PATCH /api/classes/:id  (admin) */
+classRoutes.patch('/classes/:id', requireRole('admin'), async (req, res) => {
   const current = await getClass(pool, param(req.params.id));
   if (!current) throw new HttpError(404, 'Class not found.');
-  await assertTeaches(auth, current.id);
 
   const changes = (req.body ?? {}) as Partial<ClassInput>;
-  if (auth.role === 'teacher' && (changes.name !== undefined || changes.maxAbsences !== undefined || changes.days !== undefined)) {
-    throw new HttpError(403, 'Only the admin can rename a class or change its days or maximum absences.');
-  }
-
   const next: ClassInput = {
     name: changes.name ?? current.name,
     startTime: changes.startTime ?? current.start_time,
@@ -102,6 +94,46 @@ classRoutes.patch('/classes/:id', requireRole('admin', 'teacher'), async (req, r
     `Class ${next.name.trim()} updated: ${daysText(days)}, ${next.startTime}–${next.endTime}, late after ${next.lateAfterMinutes} min, max ${next.maxAbsences} absences`,
   );
   res.json(await classResponse(current.id));
+});
+
+/** POST /api/classes/:id/session/start  (teacher of the class, admin) starts today's class: the cameras begin taking attendance. */
+classRoutes.post('/classes/:id/session/start', requireRole('admin', 'teacher'), async (req, res) => {
+  const c = await getClass(pool, param(req.params.id));
+  if (!c) throw new HttpError(404, 'Class not found.');
+  await assertTeaches(me(req), c.id);
+
+  const date = dateKey();
+  const time = clock();
+  if (!meetsOn(c, date)) throw new HttpError(400, `${c.name} doesn't meet today.`);
+  const off = await dayOff(pool, date);
+  if (off) throw new HttpError(400, `Today is ${dayOffText(off)}: no class, so no attendance is taken.`);
+  if (await isCancelled(pool, c.id, date)) throw new HttpError(400, `${c.name} is cancelled today.`);
+
+  // Starting again after End carries on the same class, so its original start time is kept.
+  await pool.query(
+    `INSERT INTO class_sessions (class_id, date, started_at) VALUES ($1, $2, $3)
+     ON CONFLICT (class_id, date) DO UPDATE SET ended_at = NULL`,
+    [c.id, date, time],
+  );
+  await addLog(pool, 'info', `${c.name} started at ${time}: cameras are taking attendance`);
+  res.status(204).end();
+});
+
+/** POST /api/classes/:id/session/end  (teacher of the class, admin) ends today's class: students not seen are marked absent. */
+classRoutes.post('/classes/:id/session/end', requireRole('admin', 'teacher'), async (req, res) => {
+  const c = await getClass(pool, param(req.params.id));
+  if (!c) throw new HttpError(404, 'Class not found.');
+  await assertTeaches(me(req), c.id);
+
+  const date = dateKey();
+  const time = clock();
+  await transaction(async (db) => {
+    const running = await one(db, 'SELECT 1 FROM class_sessions WHERE class_id = $1 AND date = $2 AND ended_at IS NULL FOR UPDATE', [c.id, date]);
+    if (!running) throw new HttpError(400, `${c.name} is not running.`);
+    await endSession(db, c.id, date, time);
+    await addLog(db, 'info', `${c.name} ended at ${time}`);
+  });
+  res.status(204).end();
 });
 
 /** DELETE /api/classes/:id  (admin). Its students are left without a class. */

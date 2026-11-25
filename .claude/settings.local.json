@@ -5,7 +5,8 @@
       "Bash(rm -rf .angular dist)",
       "Bash(sed -i 's/attendance-frontend/zeroproxy-frontend/g' package.json angular.json)",
       "Bash(npx ng *)",
-      "Read(//c/Users/user/Desktop/**)"
+      "Read(//c/Users/user/Desktop/**)",
+      "PowerShell($deadline = \\(Get-Date\\).AddSeconds\\(90\\); do { $f = Get-NetTCPConnection -LocalPort 4200 -State Listen -ErrorAction SilentlyContinue; $b = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($f -and $b\\) { break }; Start-Sleep -Seconds 2 } while \\(\\(Get-Date\\) -lt $deadline\\); \"frontend listening: $\\([bool]$f\\)\"; \"backend listening: $\\([bool]$b\\)\"; try { \"frontend http: \" + \\(Invoke-WebRequest http://localhost:4200 -UseBasicParsing -TimeoutSec 20\\).StatusCode } catch { \"frontend http failed: $_\" }; try { \"backend http: \" + \\(Invoke-WebRequest http://localhost:3000/api/health -UseBasicParsing -TimeoutSec 10\\).StatusCode } catch { \"backend http: $_\" })"
     ]
   }
 }

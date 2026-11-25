@@ -13,7 +13,9 @@
             <th>Class</th>
           }
           <th>Status</th>
-          <th>Arrived</th>
+          @if (showArrival()) {
+            <th>Arrived</th>
+          }
           <th>Recorded by</th>
         </tr>
       </thead>
@@ -28,7 +30,9 @@
               <td>{{ data.schoolClass(r.classId)?.name }}</td>
             }
             <td><app-status-badge [status]="r.status" /></td>
-            <td>{{ r.time ?? '—' }}</td>
+            @if (showArrival()) {
+              <td>{{ r.time ?? '—' }}</td>
+            }
             <td class="muted">{{ methodLabels[r.method] }}</td>
           </tr>
         }
